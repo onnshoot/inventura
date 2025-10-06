@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>IEžu inventūra 1.5.1 (Offline)</title>
+  <title>IEžu inventūra 1.5.2 (Offline)</title>
   <!-- PWA basics -->
   <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;Inventory Scanner&quot;,&quot;short_name&quot;:&quot;Scanner&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;#111&quot;,&quot;theme_color&quot;:&quot;#111&quot;}" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -32,7 +32,7 @@
   </style>
 </head>
 <body>
-<header>Ežu inventūra 1.5.1</header>
+<header>Ežu inventūra 1.5.2</header>
 <main>
   <div class="card">
     <div class="row">
@@ -47,6 +47,8 @@
       <span id="status" class="muted">Idle</span>
       <button id="btnUpdate" title="Refresh cached files">Update</button>
       <button id="btnReinit" title="Reload OCR engine">Reinit OCR</button>
+      <button id="btnPhoto" title="Take/choose a photo for OCR">Photo mode</button>
+      <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none;" />
     </div>
     <div class="videoWrap">
       <video id="video" playsinline muted></video>
@@ -291,6 +293,45 @@ function grabFrameCanvas() {
   return c;
 }
 
+// Draw image file to canvas and crop ROI (for Photo mode)
+async function drawFileToCanvas(file){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const c = els.canvas; const ctx = c.getContext('2d');
+      const w = img.naturalWidth, h = img.naturalHeight;
+      // Crop the same ROI as live mode (top band)
+      const roi = getROI(w,h);
+      c.width = roi.rw; c.height = roi.rh;
+      ctx.drawImage(img, roi.x, roi.y, roi.rw, roi.rh, 0, 0, roi.rw, roi.rh);
+      resolve(c);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// Cloud OCR via OCR.space API (Photo mode)
+async function cloudOCRFromCanvas(canvas){
+  setStatus('Uploading to OCR API…');
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/png', 0.92));
+  const fd = new FormData();
+  fd.append('file', blob, 'scan.png');
+  fd.append('language', 'eng');
+  fd.append('scale', 'true');
+  fd.append('OCREngine', '2');
+  fd.append('isOverlayRequired', 'false');
+  // NOTE: For personal use you can keep the demo key; better: get your own free key at ocr.space and replace below
+  const API_KEY = 'helloworld';
+  const resp = await fetch('https://api.ocr.space/parse/image', { method:'POST', headers:{ 'apikey': API_KEY }, body: fd });
+  const json = await resp.json();
+  if (!json || json.IsErroredOnProcessing) {
+    throw new Error(json?.ErrorMessage || 'OCR API error');
+  }
+  const text = (json.ParsedResults && json.ParsedResults[0] && json.ParsedResults[0].ParsedText) || '';
+  return text;
+}
+
 function pickEightDigits(text, words=[]) {
   // Prefer exact 8-digit tokens from OCR words with decent confidence if available
   const wordCandidate = (words||[])
@@ -391,6 +432,56 @@ els.btnClear.onclick = async () => {
 };
 
 els.btnAddManual.onclick = async () => {
+
+// ---- Photo mode events ----
+els.btnPhoto = document.getElementById('btnPhoto');
+els.fileInput = document.getElementById('fileInput');
+
+els.btnPhoto.onclick = ()=>{ els.fileInput.click(); };
+els.fileInput.onchange = async (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (interval) { clearInterval(interval); interval = null; els.autoScan.checked = false; }
+  try{
+    setStatus('Preparing image…');
+    const c = await drawFileToCanvas(file);
+    // Optional preprocessing: convert to grayscale + increase contrast
+    try{
+      const ctx = c.getContext('2d');
+      const imgData = ctx.getImageData(0,0,c.width,c.height);
+      const d = imgData.data; // RGBA
+      for (let i=0;i<d.length;i+=4){
+        const g = (d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114);
+        // simple contrast curve
+        const v = Math.max(0, Math.min(255, (g-128)*1.15 + 128));
+        d[i]=d[i+1]=d[i+2]=v;
+      }
+      ctx.putImageData(imgData,0,0);
+    }catch(_){/* ignore */}
+
+    const text = await cloudOCRFromCanvas(c);
+    const joined = (text||'').replace(/\s+/g,'');
+    const m = joined.match(/\d{8}/);
+    if (m){
+      const code = m[0];
+      await inc(code);
+      els.lastCode.textContent = code; els.lastCode.classList.remove('muted');
+      els.scanTotal.textContent = String(parseInt(els.scanTotal.textContent||'0',10)+1);
+      setStatus('Captured ' + code, 'ok');
+      refreshTable();
+      beep(true);
+    } else {
+      setStatus('No 8-digit code found in photo', 'warn');
+      beep(false);
+    }
+  }catch(err){
+    console.error(err);
+    setStatus('Photo OCR failed: ' + (err.message||err), 'err');
+  } finally {
+    // reset input so the same photo can be re-selected if needed
+    e.target.value = '';
+  }
+};
   const v = (els.manualCode.value||'').trim();
   if (!/^\d{8}$/.test(v)) { setStatus('Enter exactly 8 digits', 'warn'); return; }
   await inc(v); els.manualCode.value=''; refreshTable(); els.lastCode.textContent=v; els.lastCode.classList.remove('muted'); beep(true);
