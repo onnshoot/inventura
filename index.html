@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>IEžu inventūra 1.3 (Offline)</title>
+  <title>IEžu inventūra 1.5 (Offline)</title>
   <!-- PWA basics -->
   <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;Inventory Scanner&quot;,&quot;short_name&quot;:&quot;Scanner&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;#111&quot;,&quot;theme_color&quot;:&quot;#111&quot;}" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -32,7 +32,7 @@
   </style>
 </head>
 <body>
-<header>Ežu inventūra 1.3</header>
+<header>Ežu inventūra 1.5</header>
 <main>
   <div class="card">
     <div class="row">
@@ -258,7 +258,7 @@ async function initOCR(){
   } catch (e) {
     console.error(e);
     lastOCRError = (e && e.message) ? e.message : String(e);
-    setStatus('OCR load failed. Tap Reinit/Update.', 'err');
+    setStatus('OCR load failed: ' + lastOCRError + ' — tap Reinit or Update.', 'err');
     // allow retry
     initStarted = false;
   }
@@ -380,6 +380,8 @@ els.btnAddManual.onclick = async () => {
       './vendor/tesseract/tesseract.min.js',
       './vendor/tesseract/worker.min.js',
       './vendor/tesseract/tesseract-core.wasm.js',
+      './vendor/tesseract/tesseract-core-simd.wasm',
+      './vendor/tesseract/tesseract-core.wasm',
       './tessdata/eng.traineddata'
     ];
     for (const u of urls){
@@ -394,7 +396,7 @@ window.addEventListener('load', refreshTable);
 /* ---------- Offline cache (FULLY OFFLINE) ---------- */
 if ('serviceWorker' in navigator) {
   const sw = URL.createObjectURL(new Blob([`
-    const CACHE = 'inv-v3';
+    const CACHE = 'inv-v4';
     const FILES = [
       './',
       './index.html',
@@ -402,6 +404,8 @@ if ('serviceWorker' in navigator) {
       './vendor/tesseract/tesseract.min.js',
       './vendor/tesseract/worker.min.js',
       './vendor/tesseract/tesseract-core.wasm.js',
+      './vendor/tesseract/tesseract-core-simd.wasm',
+      './vendor/tesseract/tesseract-core.wasm',
       './tessdata/eng.traineddata'
     ];
 
