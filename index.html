@@ -46,6 +46,7 @@
       </div>
       <span id="status" class="muted">Idle</span>
       <button id="btnUpdate" title="Refresh cached files">Update</button>
+      <button id="btnReinit" title="Reload OCR engine">Reinit OCR</button>
     </div>
     <div class="videoWrap">
       <video id="video" playsinline muted></video>
@@ -239,7 +240,12 @@ const worker = Tesseract.createWorker({
   }
 });
 let workerReady = false;
-(async () => {
+let initStarted = false;
+let lastOCRError = '';
+
+async function initOCR(){
+  if (initStarted) return; // prevent double start
+  initStarted = true;
   try {
     setStatus('Loading OCR…');
     await worker.load();
@@ -251,9 +257,15 @@ let workerReady = false;
     updateROIOverlay();
   } catch (e) {
     console.error(e);
-    setStatus('OCR load failed. Tap Update.', 'err');
+    lastOCRError = (e && e.message) ? e.message : String(e);
+    setStatus('OCR load failed. Tap Reinit/Update.', 'err');
+    // allow retry
+    initStarted = false;
   }
-})();
+}
+
+// kick off at load
+initOCR();
 
 function grabFrameCanvas() {
   const v = els.video;
@@ -282,7 +294,11 @@ function pickEightDigits(text, words=[]) {
 }
 
 async function scanOnce() {
-  if (!workerReady) { setStatus('OCR not ready', 'warn'); return; }
+  if (!workerReady) {
+    setStatus('OCR not ready — initializing…', 'warn');
+    initOCR();
+    return;
+  }
   const c = grabFrameCanvas(); if (!c) return;
 
   scanning = true; setStatus('Scanning…');
@@ -321,6 +337,8 @@ els.btnUpdate.onclick = async () => {
   } catch(e) { console.warn(e); }
   location.reload();
 };
+els.btnReinit = document.getElementById('btnReinit');
+els.btnReinit.onclick = () => { initOCR(); };
 els.ignorePrice.onchange = updateROIOverlay;
 els.video.addEventListener('loadedmetadata', updateROIOverlay);
 window.addEventListener('resize', updateROIOverlay);
@@ -353,6 +371,23 @@ els.btnAddManual.onclick = async () => {
   if (!/^\d{8}$/.test(v)) { setStatus('Enter exactly 8 digits', 'warn'); return; }
   await inc(v); els.manualCode.value=''; refreshTable(); els.lastCode.textContent=v; els.lastCode.classList.remove('muted'); beep(true);
 };
+
+// quick diagnostics in console
+(async ()=>{
+  try{
+    const urls = [
+      './vendor/localforage/localforage.min.js',
+      './vendor/tesseract/tesseract.min.js',
+      './vendor/tesseract/worker.min.js',
+      './vendor/tesseract/tesseract-core.wasm.js',
+      './tessdata/eng.traineddata'
+    ];
+    for (const u of urls){
+      try { await fetch(u, { method:'HEAD' }); console.debug('[OK]', u); }
+      catch(e){ console.error('[MISSING]', u, e); }
+    }
+  }catch(e){/* ignore */}
+})();
 
 window.addEventListener('load', refreshTable);
 
