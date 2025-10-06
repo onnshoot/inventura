@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Inventory Scanner (Offline)</title>
+  <!-- PWA basics -->
+  <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;Inventory Scanner&quot;,&quot;short_name&quot;:&quot;Scanner&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;#111&quot;,&quot;theme_color&quot;:&quot;#111&quot;}" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background:#0f1115; color:#e8e8e8; }
+    header { padding: 12px 16px; font-weight: 700; background:#151822; position: sticky; top:0; z-index: 10; }
+    main { padding: 12px 16px 120px; }
+    .card { background:#151822; border:1px solid #25293a; border-radius: 12px; padding: 12px; margin: 12px 0; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+    button, input { padding:10px 12px; border-radius:10px; border:1px solid #2b2f43; background:#1a1f2e; color:#e8e8e8; }
+    button:active { transform: scale(0.98); }
+    video, canvas { width:100%; border-radius:12px; background:#000; }
+    table { width:100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { border-bottom:1px solid #2b2f43; padding:8px; text-align:left; }
+    .muted { opacity: .75; }
+    .pill { font-variant-numeric: tabular-nums; padding:4px 8px; border-radius:9999px; background:#1f2435; border:1px solid #2b2f43; }
+    .grid { display:grid; grid-template-columns: 1fr auto auto; gap:6px; align-items:center; }
+    .footer { position:fixed; bottom:0; left:0; right:0; background:#151822; border-top:1px solid #25293a; padding:8px 12px; display:flex; gap:8px; flex-wrap:wrap; }
+    .ok { color:#8cffb7 }
+    .warn { color:#ffd27d }
+    .err { color:#ff9aa2 }
+  </style>
+</head>
+<body>
+<header>Inventory Scanner</header>
+<main>
+  <div class="card">
+    <div class="row">
+      <button id="btnStart">Start Camera</button>
+      <button id="btnScan">Scan Frame</button>
+      <label class="row"><input type="checkbox" id="autoScan" /> Auto-scan</label>
+      <span id="status" class="muted">Idle</span>
+    </div>
+    <video id="video" playsinline muted></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <div class="muted" style="margin-top:6px;">Tip: aim so the orange tag fills most of the frame. High contrast helps.</div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <b>Counts</b>
+      <button id="btnExport">Export CSV</button>
+      <button id="btnClear" title="Delete all">Clear All</button>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <input id="manualCode" placeholder="Manual add: 8 digits" inputmode="numeric" maxlength="8" />
+      <button id="btnAddManual">Add</button>
+    </div>
+    <div id="countsWrap"></div>
+  </div>
+</main>
+
+<div class="footer">
+  <span>Scanned: <span id="scanTotal" class="pill">0</span></span>
+  <span>Unique: <span id="uniqueTotal" class="pill">0</span></span>
+  <span>Last: <span id="lastCode" class="pill muted">—</span></span>
+</div>
+
+<!-- libs -->
+<script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+
+<script>
+/* ---------- Storage (IndexedDB via localForage) ---------- */
+const store = localforage.createInstance({ name: 'inventory', storeName: 'codes' });
+
+async function getAll()  { return (await store.getItem('data')) || {}; }
+async function setAll(d)  { return store.setItem('data', d); }
+async function inc(code) {
+  const data = await getAll();
+  data[code] = (data[code] || 0) + 1;
+  await setAll(data);
+  return data[code];
+}
+async function setCount(code, val) {
+  const data = await getAll();
+  if (val <= 0) delete data[code]; else data[code] = val;
+  await setAll(data);
+}
+async function clearAll() { await setAll({}); }
+
+/* ---------- UI helpers ---------- */
+const els = {
+  video: document.getElementById('video'),
+  canvas: document.getElementById('canvas'),
+  btnStart: document.getElementById('btnStart'),
+  btnScan: document.getElementById('btnScan'),
+  status: document.getElementById('status'),
+  countsWrap: document.getElementById('countsWrap'),
+  scanTotal: document.getElementById('scanTotal'),
+  uniqueTotal: document.getElementById('uniqueTotal'),
+  lastCode: document.getElementById('lastCode'),
+  autoScan: document.getElementById('autoScan'),
+  btnExport: document.getElementById('btnExport'),
+  btnClear: document.getElementById('btnClear'),
+  manualCode: document.getElementById('manualCode'),
+  btnAddManual: document.getElementById('btnAddManual'),
+};
+
+function setStatus(msg, cls='muted') {
+  els.status.className = cls;
+  els.status.textContent = msg;
+}
+
+function beep(ok=true){
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type = ok ? 'triangle' : 'sawtooth';
+    o.frequency.value = ok ? 880 : 220;
+    o.connect(g); g.connect(ctx.destination); g.gain.value = 0.02;
+    o.start(); setTimeout(()=>{o.stop(); ctx.close()}, 120);
+  } catch(e) {}
+}
+
+async function refreshTable() {
+  const data = await getAll();
+  const entries = Object.entries(data).sort((a,b)=>a[0].localeCompare(b[0]));
+  els.uniqueTotal.textContent = entries.length;
+  els.countsWrap.innerHTML = entries.length
+    ? `<table><thead><tr><th>Code</th><th>Count</th><th></th></tr></thead><tbody>
+       ${entries.map(([code, cnt]) => `
+         <tr>
+           <td><code>${code}</code></td>
+           <td class="grid">
+             <span>${cnt}</span>
+             <button data-dec="${code}">−</button>
+             <button data-inc="${code}">+</button>
+           </td>
+           <td><button data-del="${code}">Delete</button></td>
+         </tr>`).join('')}
+       </tbody></table>`
+    : `<div class="muted">No scans yet.</div>`;
+}
+
+els.countsWrap.addEventListener('click', async (e)=>{
+  const t = e.target;
+  if (t.dataset.inc){ const c=t.dataset.inc; await setCount(c,( (await getAll())[c]||0 )+1); refreshTable(); }
+  if (t.dataset.dec){ const c=t.dataset.dec; await setCount(c,( (await getAll())[c]||0 )-1); refreshTable(); }
+  if (t.dataset.del){ const c=t.dataset.del; await setCount(c,0); refreshTable(); }
+});
+
+/* ---------- Camera ---------- */
+let stream = null, interval = null, scanning=false;
+
+async function startCamera() {
+  if (stream) return;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } });
+    els.video.srcObject = stream;
+    await els.video.play();
+    setStatus('Camera ready', 'ok');
+  } catch (e) {
+    console.error(e);
+    setStatus('Camera error: ' + e.message, 'err');
+  }
+}
+
+/* ---------- OCR (Tesseract) ---------- */
+const worker = Tesseract.createWorker();
+let workerReady = false;
+(async () => {
+  setStatus('Loading OCR…');
+  await worker.load();
+  await worker.loadLanguage('eng');
+  await worker.initialize('eng');
+  // digits only
+  await worker.setParameters({ tessedit_char_whitelist: '0123456789' });
+  workerReady = true;
+  setStatus('OCR ready', 'ok');
+})();
+
+function grabFrameCanvas() {
+  const v = els.video;
+  const c = els.canvas;
+  const w = v.videoWidth, h = v.videoHeight;
+  if (!w || !h) return null;
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  // Draw full frame; could crop a center box for better speed
+  ctx.drawImage(v, 0, 0, w, h);
+  return c;
+}
+
+function pickEightDigits(text, words=[]) {
+  // Prefer exact 8-digit tokens from OCR words with decent confidence if available
+  const wordCandidate = (words||[])
+    .filter(w => /^\d{8}$/.test(w.text || ''))
+    .sort((a,b)=> (b.confidence||0) - (a.confidence||0) )[0];
+  if (wordCandidate) return { code: wordCandidate.text, conf: wordCandidate.confidence||0.8 };
+
+  // Fallback: regex over full text (strip spaces/newlines)
+  const joined = (text||'').replace(/\s+/g,'');
+  const m = joined.match(/\d{8}/);
+  if (m) return { code: m[0], conf: 0.6 };
+  return null;
+}
+
+async function scanOnce() {
+  if (!workerReady) { setStatus('OCR not ready', 'warn'); return; }
+  const c = grabFrameCanvas(); if (!c) return;
+
+  scanning = true; setStatus('Scanning…');
+  const { data } = await worker.recognize(c);
+  const best = pickEightDigits(data.text, (data.words||[]));
+  if (best && /^\d{8}$/.test(best.code)) {
+    await inc(best.code);
+    const total = parseInt(els.scanTotal.textContent||'0',10)+1;
+    els.scanTotal.textContent = total;
+    els.lastCode.textContent = best.code;
+    els.lastCode.classList.remove('muted');
+    beep(true);
+    setStatus(`Captured ${best.code} (conf ~${Math.round(best.conf*100)}%)`, 'ok');
+    refreshTable();
+  } else {
+    beep(false);
+    setStatus('No 8-digit tag found', 'warn');
+  }
+  scanning = false;
+}
+
+/* ---------- Events ---------- */
+els.btnStart.onclick = startCamera;
+els.btnScan.onclick = () => { if (!scanning) scanOnce(); };
+
+els.autoScan.onchange = () => {
+  if (els.autoScan.checked) {
+    interval = setInterval(()=>{ if (!scanning) scanOnce(); }, 1200);
+  } else if (interval) {
+    clearInterval(interval); interval = null;
+  }
+};
+
+els.btnExport.onclick = async () => {
+  const data = await getAll();
+  const rows = Object.entries(data).map(([k,v])=>`${k},${v}`).join('\n');
+  const blob = new Blob([rows], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'inventory_counts.csv';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+};
+
+els.btnClear.onclick = async () => {
+  if (!confirm('Delete all counts?')) return;
+  await clearAll(); els.scanTotal.textContent='0'; els.lastCode.textContent='—'; els.lastCode.classList.add('muted'); refreshTable();
+};
+
+els.btnAddManual.onclick = async () => {
+  const v = (els.manualCode.value||'').trim();
+  if (!/^\d{8}$/.test(v)) { setStatus('Enter exactly 8 digits', 'warn'); return; }
+  await inc(v); els.manualCode.value=''; refreshTable(); els.lastCode.textContent=v; els.lastCode.classList.remove('muted'); beep(true);
+};
+
+window.addEventListener('load', refreshTable);
+
+/* ---------- Minimal offline cache (optional) ---------- */
+if ('serviceWorker' in navigator) {
+  const sw = URL.createObjectURL(new Blob([`
+    self.addEventListener('install', e => {
+      e.waitUntil(caches.open('inv-v1').then(c => c.addAll(['./'])));
+      self.skipWaiting();
+    });
+    self.addEventListener('fetch', e => {
+      e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+    });
+  `], { type: 'text/javascript' }));
+  navigator.serviceWorker.register(sw);
+}
+</script>
+</body>
+</html>
