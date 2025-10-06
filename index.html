@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>IEžu inventūra 1.5 (Offline)</title>
+  <title>IEžu inventūra 1.5.1 (Offline)</title>
   <!-- PWA basics -->
   <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;Inventory Scanner&quot;,&quot;short_name&quot;:&quot;Scanner&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;#111&quot;,&quot;theme_color&quot;:&quot;#111&quot;}" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -32,7 +32,7 @@
   </style>
 </head>
 <body>
-<header>Ežu inventūra 1.5</header>
+<header>Ežu inventūra 1.5.1</header>
 <main>
   <div class="card">
     <div class="row">
@@ -242,10 +242,19 @@ const worker = Tesseract.createWorker({
 let workerReady = false;
 let initStarted = false;
 let lastOCRError = '';
+let useDirect = false; // fallback mode when worker.load is unavailable
 
 async function initOCR(){
   if (initStarted) return; // prevent double start
   initStarted = true;
+  // If the bundled tesseract.min.js doesn’t expose worker methods, switch to direct mode.
+  if (!worker || typeof worker.load !== 'function') {
+    useDirect = true;
+    workerReady = true;
+    setStatus('OCR ready (direct mode)', 'ok');
+    updateROIOverlay();
+    return;
+  }
   try {
     setStatus('Loading OCR…');
     await worker.load();
@@ -258,9 +267,12 @@ async function initOCR(){
   } catch (e) {
     console.error(e);
     lastOCRError = (e && e.message) ? e.message : String(e);
-    setStatus('OCR load failed: ' + lastOCRError + ' — tap Reinit or Update.', 'err');
+    setStatus('OCR load failed: ' + lastOCRError + ' — tap Reinit/Update. Falling back to direct mode…', 'err');
+    useDirect = true; workerReady = true;
+    updateROIOverlay();
+    return;
     // allow retry
-    initStarted = false;
+    //initStarted = false; // unreachable
   }
 }
 
@@ -302,7 +314,19 @@ async function scanOnce() {
   const c = grabFrameCanvas(); if (!c) return;
 
   scanning = true; setStatus('Scanning…');
-  const { data } = await worker.recognize(c);
+  let data;
+  if (useDirect) {
+    const res = await Tesseract.recognize(c, 'eng', {
+      logger: m => setStatus(`OCR ${Math.round((m.progress||0)*100)}% — ${m.status||''}`),
+      workerPath: './vendor/tesseract/worker.min.js',
+      corePath:   './vendor/tesseract/tesseract-core.wasm.js',
+      langPath:   './tessdata'
+    });
+    data = res.data;
+  } else {
+    const res = await worker.recognize(c);
+    data = res.data;
+  }
   const best = pickEightDigits(data.text, (data.words||[]));
   if (best && /^\d{8}$/.test(best.code)) {
     await inc(best.code);
