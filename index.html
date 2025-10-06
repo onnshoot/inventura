@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>IEžu inventūra 1.5.2 (Offline)</title>
+  <title>Ežu inventūra 2.0 (Photo OCR)</title>
   <!-- PWA basics -->
   <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;Inventory Scanner&quot;,&quot;short_name&quot;:&quot;Scanner&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;#111&quot;,&quot;theme_color&quot;:&quot;#111&quot;}" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -35,13 +35,13 @@
   </style>
 </head>
 <body>
-<header>Ežu inventūra 1.5.2</header>
+<header>Ežu inventūra 2.0 — Photo OCR</header>
 <main>
   <div class="card">
     <div class="row">
       <button id="btnStart">Start Camera</button>
-      <button id="btnScan">Scan Frame</button>
-      <label class="row"><input type="checkbox" id="autoScan" /> Auto-scan</label>
+      <!-- <button id="btnScan">Scan Frame</button> -->
+      <!-- <label class="row"><input type="checkbox" id="autoScan" /> Auto-scan</label> -->
       <label class="row"><input type="checkbox" id="ignorePrice" checked /> Ignore price (scan top)</label>
       <div id="zoomWrap" class="row" style="display:none;">
         <label>Zoom <input id="zoom" type="range" min="1" max="1" step="0.1" /></label>
@@ -49,7 +49,7 @@
       </div>
       <span id="status" class="muted">Idle</span>
       <button id="btnUpdate" title="Refresh cached files">Update</button>
-      <button id="btnReinit" title="Reload OCR engine">Reinit OCR</button>
+      <!-- <button id="btnReinit" title="Reload OCR engine">Reinit OCR</button> -->
       <button id="btnPhoto" title="Take/choose a photo for OCR">Photo mode</button>
       <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none;" />
     </div>
@@ -57,6 +57,7 @@
       <video id="video" playsinline muted></video>
       <div id="roiBox" class="roi"></div>
     </div>
+    <div id="preview" class="muted" style="margin-top:6px; display:none;">Preview ready</div>
     <canvas id="canvas" style="display:none;"></canvas>
     <div class="muted" style="margin-top:6px;">Tip: aim so the orange tag fills most of the frame. High contrast helps.</div>
   </div>
@@ -83,7 +84,6 @@
 
 <!-- libs (LOCAL copies for full offline) -->
 <script src="./vendor/localforage/localforage.min.js"></script>
-<script src="./vendor/tesseract/tesseract.min.js"></script>
 
 <script>
 /* ---------- Storage (IndexedDB via localForage) ---------- */
@@ -242,56 +242,6 @@ async function startCamera() {
   }
 }
 
-/* ---------- OCR (Tesseract) ---------- */
-const worker = Tesseract.createWorker({
-  workerPath: './vendor/tesseract/worker.min.js',
-  corePath:   './vendor/tesseract/tesseract-core.wasm.js',
-  langPath:   './tessdata',
-  logger: m => {
-    const p = Math.round((m.progress||0)*100);
-    setStatus(`OCR ${p}% — ${m.status||''}`);
-  }
-});
-let workerReady = false;
-let initStarted = false;
-let lastOCRError = '';
-let useDirect = false; // fallback mode when worker.load is unavailable
-
-async function initOCR(){
-  if (initStarted) return; // prevent double start
-  initStarted = true;
-  // If the bundled tesseract.min.js doesn’t expose worker methods, switch to direct mode.
-  if (!worker || typeof worker.load !== 'function') {
-    useDirect = true;
-    workerReady = true;
-    setStatus('OCR ready (direct mode)', 'ok');
-    updateROIOverlay();
-    return;
-  }
-  try {
-    setStatus('Loading OCR…');
-    await worker.load();
-    await worker.loadLanguage('eng');
-    await worker.initialize('eng');
-    await worker.setParameters({ tessedit_char_whitelist: '0123456789' });
-    workerReady = true;
-    setStatus('OCR ready', 'ok');
-    updateROIOverlay();
-  } catch (e) {
-    console.error(e);
-    lastOCRError = (e && e.message) ? e.message : String(e);
-    setStatus('OCR load failed: ' + lastOCRError + ' — tap Reinit/Update. Falling back to direct mode…', 'err');
-    useDirect = true; workerReady = true;
-    updateROIOverlay();
-    return;
-    // allow retry
-    //initStarted = false; // unreachable
-  }
-}
-
-// kick off at load
-initOCR();
-
 function grabFrameCanvas() {
   const v = els.video;
   const c = els.canvas;
@@ -320,6 +270,45 @@ async function drawFileToCanvas(file){
     img.onerror = reject;
     img.src = URL.createObjectURL(file);
   });
+}
+
+function toGray(ctx, w, h){
+  const img = ctx.getImageData(0,0,w,h); const d = img.data;
+  for (let i=0;i<d.length;i+=4){ const g = 0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; d[i]=d[i+1]=d[i+2]=g; }
+  ctx.putImageData(img,0,0);
+}
+function adjustContrast(ctx, w, h, amount=1.2){
+  const img = ctx.getImageData(0,0,w,h); const d = img.data;
+  for (let i=0;i<d.length;i+=4){ for (let k=0;k<3;k++){ const v=d[i+k]; d[i+k] = Math.max(0, Math.min(255, (v-128)*amount + 128)); }}
+  ctx.putImageData(img,0,0);
+}
+function threshold(ctx, w, h, t=128){
+  const img = ctx.getImageData(0,0,w,h); const d = img.data;
+  for (let i=0;i<d.length;i+=4){ const g=d[i]; const v=g>t?255:0; d[i]=d[i+1]=d[i+2]=v; }
+  ctx.putImageData(img,0,0);
+}
+function cloneCanvas(src){ const c=document.createElement('canvas'); c.width=src.width; c.height=src.height; c.getContext('2d').drawImage(src,0,0); return c; }
+
+async function runOcrPipeline(baseCanvas){
+  const stages = [];
+  // 1) original
+  stages.push(cloneCanvas(baseCanvas));
+  // 2) gray + contrast
+  let c2 = cloneCanvas(baseCanvas); let g2=c2.getContext('2d'); toGray(g2,c2.width,c2.height); adjustContrast(g2,c2.width,c2.height,1.25); stages.push(c2);
+  // 3) gray + hard threshold 140
+  let c3 = cloneCanvas(baseCanvas); let g3=c3.getContext('2d'); toGray(g3,c3.width,c3.height); threshold(g3,c3.width,c3.height,140); stages.push(c3);
+  // 4) gray + threshold 100
+  let c4 = cloneCanvas(baseCanvas); let g4=c4.getContext('2d'); toGray(g4,c4.width,c4.height); threshold(g4,c4.width,c4.height,100); stages.push(c4);
+
+  for (const c of stages){
+    try{
+      const text = await cloudOCRFromCanvas(c);
+      const joined = (text||'').replace(/\s+/g,'');
+      const m = joined.match(/\d{8}/);
+      if (m) return m[0];
+    }catch(e){ console.warn('OCR stage failed', e); }
+  }
+  return null;
 }
 
 // Cloud OCR via OCR.space API (Photo mode)
@@ -358,47 +347,15 @@ function pickEightDigits(text, words=[]) {
 }
 
 async function scanOnce() {
-  if (!workerReady) {
-    setStatus('OCR not ready — initializing…', 'warn');
-    initOCR();
-    return;
-  }
-  const c = grabFrameCanvas(); if (!c) return;
-
-  scanning = true; setStatus('Scanning…');
-  let data;
-  if (useDirect) {
-    const res = await Tesseract.recognize(c, 'eng', {
-      logger: m => setStatus(`OCR ${Math.round((m.progress||0)*100)}% — ${m.status||''}`),
-      workerPath: './vendor/tesseract/worker.min.js',
-      corePath:   './vendor/tesseract/tesseract-core.wasm.js',
-      langPath:   './tessdata'
-    });
-    data = res.data;
-  } else {
-    const res = await worker.recognize(c);
-    data = res.data;
-  }
-  const best = pickEightDigits(data.text, (data.words||[]));
-  if (best && /^\d{8}$/.test(best.code)) {
-    await inc(best.code);
-    const total = parseInt(els.scanTotal.textContent||'0',10)+1;
-    els.scanTotal.textContent = total;
-    els.lastCode.textContent = best.code;
-    els.lastCode.classList.remove('muted');
-    beep(true);
-    setStatus(`Captured ${best.code} (conf ~${Math.round(best.conf*100)}%)`, 'ok');
-    refreshTable();
-  } else {
-    beep(false);
-    setStatus('No 8-digit tag found', 'warn');
-  }
-  scanning = false;
+  // Photo mode only now
+  flashButton(els.btnScan);
+  setStatus('Photo mode: choose or take a photo');
+  els.fileInput.click();
 }
 
 /* ---------- Events ---------- */
 els.btnStart.onclick = () => { flashButton(els.btnStart); startCamera(); };
-els.btnScan.onclick = () => { flashButton(els.btnScan); if (!scanning) scanOnce(); };
+els.btnScan.onclick = () => { flashButton(els.btnScan); setStatus('Photo mode: choose or take a photo'); els.fileInput.click(); };
 els.btnUpdate = document.getElementById('btnUpdate');
 els.btnUpdate.onclick = async () => {
   try {
@@ -413,23 +370,12 @@ els.btnUpdate.onclick = async () => {
   } catch(e) { console.warn(e); }
   location.reload();
 };
-els.btnReinit = document.getElementById('btnReinit');
-els.btnReinit.onclick = () => { 
-  flashButton(document.getElementById('btnReinit'));
-  setStatus('Reinitializing OCR…'); 
-  initOCR(); 
-};
+// Reinit OCR button removed (UI hidden)
 els.ignorePrice.onchange = updateROIOverlay;
 els.video.addEventListener('loadedmetadata', updateROIOverlay);
 window.addEventListener('resize', updateROIOverlay);
 
-els.autoScan.onchange = () => {
-  if (els.autoScan.checked) {
-    interval = setInterval(()=>{ if (!scanning) scanOnce(); }, 1200);
-  } else if (interval) {
-    clearInterval(interval); interval = null;
-  }
-};
+
 
 els.btnExport.onclick = async () => {
   flashButton(els.btnExport);
@@ -474,30 +420,16 @@ els.btnPhoto.onclick = ()=>{
 els.fileInput.onchange = async (e)=>{
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  if (interval) { clearInterval(interval); interval = null; els.autoScan.checked = false; }
   try{
     els.btnPhoto.disabled = true;
     setStatus('Preparing image…');
     const c = await drawFileToCanvas(file);
-    // Optional preprocessing: convert to grayscale + increase contrast
-    try{
-      const ctx = c.getContext('2d');
-      const imgData = ctx.getImageData(0,0,c.width,c.height);
-      const d = imgData.data; // RGBA
-      for (let i=0;i<d.length;i+=4){
-        const g = (d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114);
-        const v = Math.max(0, Math.min(255, (g-128)*1.15 + 128));
-        d[i]=d[i+1]=d[i+2]=v;
-      }
-      ctx.putImageData(imgData,0,0);
-    }catch(_){/* ignore */}
+    // Show preview note
+    const p = document.getElementById('preview'); if (p) { p.style.display='block'; p.textContent = `Preview: ${c.width}×${c.height}`; }
 
-    setStatus('Uploading to OCR…');
-    const text = await cloudOCRFromCanvas(c);
-    const joined = (text||'').replace(/\s+/g,'');
-    const m = joined.match(/\d{8}/);
-    if (m){
-      const code = m[0];
+    setStatus('OCR: trying variants…');
+    const code = await runOcrPipeline(c);
+    if (code){
       await inc(code);
       els.lastCode.textContent = code; els.lastCode.classList.remove('muted');
       els.scanTotal.textContent = String(parseInt(els.scanTotal.textContent||'0',10)+1);
@@ -505,7 +437,7 @@ els.fileInput.onchange = async (e)=>{
       refreshTable();
       beep(true);
     } else {
-      setStatus('No 8-digit code found in photo', 'warn');
+      setStatus('No 8-digit code found. Try a closer/clearer photo.', 'warn');
       beep(false);
     }
   }catch(err){
@@ -517,18 +449,29 @@ els.fileInput.onchange = async (e)=>{
   }
 };
 
+// Drag & drop support
+window.addEventListener('dragover', e=>{ e.preventDefault(); });
+window.addEventListener('drop', async e=>{
+  e.preventDefault();
+  const file = e.dataTransfer?.files?.[0];
+  if (!file) return;
+  els.fileInput.files = e.dataTransfer.files; // for consistency
+  els.fileInput.onchange({ target: els.fileInput });
+});
+
+// Clipboard paste support (iOS 16+ allows pasting images with permission)
+window.addEventListener('paste', async e=>{
+  const item = [...(e.clipboardData?.items||[])].find(i=> i.type.startsWith('image/'));
+  if (!item) return;
+  const file = item.getAsFile();
+  const dt = new DataTransfer(); dt.items.add(file); els.fileInput.files = dt.files;
+  els.fileInput.onchange({ target: els.fileInput });
+});
+
 // quick diagnostics in console
 (async ()=>{
   try{
-    const urls = [
-      './vendor/localforage/localforage.min.js',
-      './vendor/tesseract/tesseract.min.js',
-      './vendor/tesseract/worker.min.js',
-      './vendor/tesseract/tesseract-core.wasm.js',
-      './vendor/tesseract/tesseract-core-simd.wasm',
-      './vendor/tesseract/tesseract-core.wasm',
-      './tessdata/eng.traineddata'
-    ];
+    const urls = [ './vendor/localforage/localforage.min.js' ];
     for (const u of urls){
       try { await fetch(u, { method:'HEAD' }); console.debug('[OK]', u); }
       catch(e){ console.error('[MISSING]', u, e); }
@@ -541,17 +484,11 @@ window.addEventListener('load', refreshTable);
 /* ---------- Offline cache (FULLY OFFLINE) ---------- */
 if ('serviceWorker' in navigator) {
   const sw = URL.createObjectURL(new Blob([`
-    const CACHE = 'inv-v4';
+    const CACHE = 'inv-v5';
     const FILES = [
       './',
       './index.html',
-      './vendor/localforage/localforage.min.js',
-      './vendor/tesseract/tesseract.min.js',
-      './vendor/tesseract/worker.min.js',
-      './vendor/tesseract/tesseract-core.wasm.js',
-      './vendor/tesseract/tesseract-core-simd.wasm',
-      './vendor/tesseract/tesseract-core.wasm',
-      './tessdata/eng.traineddata'
+      './vendor/localforage/localforage.min.js'
     ];
 
     self.addEventListener('install', e => {
