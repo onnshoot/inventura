@@ -26,6 +26,9 @@
     .ok { color:#8cffb7 }
     .warn { color:#ffd27d }
     .err { color:#ff9aa2 }
+    .videoWrap { position: relative; }
+    .videoWrap video { display:block; width:100%; border-radius:12px; background:#000; }
+    .roi { position:absolute; border:2px dashed #ffd27d; border-radius:10px; pointer-events:none; box-shadow: 0 0 0 9999px rgba(0,0,0,0); }
   </style>
 </head>
 <body>
@@ -36,9 +39,17 @@
       <button id="btnStart">Start Camera</button>
       <button id="btnScan">Scan Frame</button>
       <label class="row"><input type="checkbox" id="autoScan" /> Auto-scan</label>
+      <label class="row"><input type="checkbox" id="ignorePrice" checked /> Ignore price (scan top)</label>
+      <div id="zoomWrap" class="row" style="display:none;">
+        <label>Zoom <input id="zoom" type="range" min="1" max="1" step="0.1" /></label>
+        <span id="zoomVal" class="muted">1×</span>
+      </div>
       <span id="status" class="muted">Idle</span>
     </div>
-    <video id="video" playsinline muted></video>
+    <div class="videoWrap">
+      <video id="video" playsinline muted></video>
+      <div id="roiBox" class="roi"></div>
+    </div>
     <canvas id="canvas" style="display:none;"></canvas>
     <div class="muted" style="margin-top:6px;">Tip: aim so the orange tag fills most of the frame. High contrast helps.</div>
   </div>
@@ -102,11 +113,43 @@ const els = {
   btnClear: document.getElementById('btnClear'),
   manualCode: document.getElementById('manualCode'),
   btnAddManual: document.getElementById('btnAddManual'),
+  zoom: document.getElementById('zoom'),
+  zoomWrap: document.getElementById('zoomWrap'),
+  zoomVal: document.getElementById('zoomVal'),
+  ignorePrice: document.getElementById('ignorePrice'),
+  roiBox: document.getElementById('roiBox'),
 };
 
 function setStatus(msg, cls='muted') {
   els.status.className = cls;
   els.status.textContent = msg;
+}
+
+function getROI(w,h){
+  // If ignoring price, scan roughly the upper-middle band (top 35% height, centered horizontally)
+  if (els.ignorePrice && els.ignorePrice.checked){
+    const x = Math.round(w * 0.10);
+    const y = Math.round(h * 0.10);
+    const rw = Math.round(w * 0.80);
+    const rh = Math.round(h * 0.35);
+    return {x,y,rw,rh};
+  }
+  return {x:0,y:0,rw:w,rh:h};
+}
+
+function updateROIOverlay(){
+  const v = els.video; if (!v.videoWidth || !v.videoHeight) return;
+  const w = v.clientWidth, h = v.clientHeight;
+  // Map ROI percentages to current element size
+  const rx = 0.10 * w, ry = 0.10 * h, rw = 0.80 * w, rh = 0.35 * h;
+  const show = els.ignorePrice && els.ignorePrice.checked;
+  els.roiBox.style.display = show ? 'block' : 'none';
+  if (show){
+    els.roiBox.style.left = rx + 'px';
+    els.roiBox.style.top = ry + 'px';
+    els.roiBox.style.width = rw + 'px';
+    els.roiBox.style.height = rh + 'px';
+  }
 }
 
 function beep(ok=true){
@@ -156,6 +199,27 @@ async function startCamera() {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } });
     els.video.srcObject = stream;
     await els.video.play();
+    // Try to expose optical/digital zoom if supported
+    const track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    const settings = track.getSettings ? track.getSettings() : {};
+    if (caps && 'zoom' in caps){
+      els.zoomWrap.style.display = 'flex';
+      els.zoom.min = caps.zoom.min ?? 1;
+      els.zoom.max = caps.zoom.max ?? 5;
+      els.zoom.step = caps.zoom.step ?? 0.1;
+      els.zoom.value = (settings.zoom ?? els.zoom.min);
+      els.zoomVal.textContent = Number(els.zoom.value).toFixed(1) + '×';
+      els.zoom.oninput = async (e)=>{
+        const z = Number(e.target.value);
+        els.zoomVal.textContent = z.toFixed(1) + '×';
+        try {
+          await track.applyConstraints({ advanced: [{ zoom: z }] });
+        } catch(err){
+          try { await track.applyConstraints({ zoom: z }); } catch(_){}
+        }
+      };
+    }
     setStatus('Camera ready', 'ok');
   } catch (e) {
     console.error(e);
@@ -175,6 +239,7 @@ let workerReady = false;
   await worker.setParameters({ tessedit_char_whitelist: '0123456789' });
   workerReady = true;
   setStatus('OCR ready', 'ok');
+  updateROIOverlay();
 })();
 
 function grabFrameCanvas() {
@@ -182,10 +247,10 @@ function grabFrameCanvas() {
   const c = els.canvas;
   const w = v.videoWidth, h = v.videoHeight;
   if (!w || !h) return null;
-  c.width = w; c.height = h;
   const ctx = c.getContext('2d');
-  // Draw full frame; could crop a center box for better speed
-  ctx.drawImage(v, 0, 0, w, h);
+  const {x,y,rw,rh} = getROI(w,h);
+  c.width = rw; c.height = rh;
+  ctx.drawImage(v, x, y, rw, rh, 0, 0, rw, rh);
   return c;
 }
 
@@ -229,6 +294,9 @@ async function scanOnce() {
 /* ---------- Events ---------- */
 els.btnStart.onclick = startCamera;
 els.btnScan.onclick = () => { if (!scanning) scanOnce(); };
+els.ignorePrice.onchange = updateROIOverlay;
+els.video.addEventListener('loadedmetadata', updateROIOverlay);
+window.addEventListener('resize', updateROIOverlay);
 
 els.autoScan.onchange = () => {
   if (els.autoScan.checked) {
