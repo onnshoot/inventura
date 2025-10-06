@@ -29,6 +29,9 @@
     .videoWrap { position: relative; }
     .videoWrap video { display:block; width:100%; border-radius:12px; background:#000; }
     .roi { position:absolute; border:2px dashed #ffd27d; border-radius:10px; pointer-events:none; box-shadow: 0 0 0 9999px rgba(0,0,0,0); }
+    /* Click feedback */
+    .pulse { animation: pulse 300ms ease-in-out; }
+    @keyframes pulse { 0%{transform:scale(1);} 50%{transform:scale(0.97);} 100%{transform:scale(1);} }
   </style>
 </head>
 <body>
@@ -127,6 +130,14 @@ const els = {
 function setStatus(msg, cls='muted') {
   els.status.className = cls;
   els.status.textContent = msg;
+}
+
+function flashButton(el){
+  if (!el) return;
+  el.classList.remove('pulse');
+  // force reflow to restart animation
+  void el.offsetWidth;
+  el.classList.add('pulse');
 }
 
 function getROI(w,h){
@@ -386,8 +397,8 @@ async function scanOnce() {
 }
 
 /* ---------- Events ---------- */
-els.btnStart.onclick = startCamera;
-els.btnScan.onclick = () => { if (!scanning) scanOnce(); };
+els.btnStart.onclick = () => { flashButton(els.btnStart); startCamera(); };
+els.btnScan.onclick = () => { flashButton(els.btnScan); if (!scanning) scanOnce(); };
 els.btnUpdate = document.getElementById('btnUpdate');
 els.btnUpdate.onclick = async () => {
   try {
@@ -403,7 +414,11 @@ els.btnUpdate.onclick = async () => {
   location.reload();
 };
 els.btnReinit = document.getElementById('btnReinit');
-els.btnReinit.onclick = () => { initOCR(); };
+els.btnReinit.onclick = () => { 
+  flashButton(document.getElementById('btnReinit'));
+  setStatus('Reinitializing OCR…'); 
+  initOCR(); 
+};
 els.ignorePrice.onchange = updateROIOverlay;
 els.video.addEventListener('loadedmetadata', updateROIOverlay);
 window.addEventListener('resize', updateROIOverlay);
@@ -417,6 +432,8 @@ els.autoScan.onchange = () => {
 };
 
 els.btnExport.onclick = async () => {
+  flashButton(els.btnExport);
+  setStatus('Exporting CSV…');
   const data = await getAll();
   const rows = Object.entries(data).map(([k,v])=>`${k},${v}`).join('\n');
   const blob = new Blob([rows], { type: 'text/csv' });
@@ -427,22 +444,39 @@ els.btnExport.onclick = async () => {
 };
 
 els.btnClear.onclick = async () => {
+  flashButton(els.btnClear);
   if (!confirm('Delete all counts?')) return;
   await clearAll(); els.scanTotal.textContent='0'; els.lastCode.textContent='—'; els.lastCode.classList.add('muted'); refreshTable();
 };
 
 els.btnAddManual.onclick = async () => {
+  flashButton(document.getElementById('btnAddManual'));
+  const v = (els.manualCode.value||'').trim();
+  if (!/^\d{8}$/.test(v)) { setStatus('Enter exactly 8 digits', 'warn'); return; }
+  await inc(v);
+  els.manualCode.value='';
+  await refreshTable();
+  els.lastCode.textContent=v;
+  els.lastCode.classList.remove('muted');
+  beep(true);
+  setStatus('Added ' + v, 'ok');
+};
 
-// ---- Photo mode events ----
+// ---- Photo mode events (top-level) ----
 els.btnPhoto = document.getElementById('btnPhoto');
 els.fileInput = document.getElementById('fileInput');
 
-els.btnPhoto.onclick = ()=>{ els.fileInput.click(); };
+els.btnPhoto.onclick = ()=>{ 
+  flashButton(els.btnPhoto);
+  setStatus('Photo mode: choose or take a photo'); 
+  els.fileInput.click(); 
+};
 els.fileInput.onchange = async (e)=>{
   const file = e.target.files && e.target.files[0];
   if (!file) return;
   if (interval) { clearInterval(interval); interval = null; els.autoScan.checked = false; }
   try{
+    els.btnPhoto.disabled = true;
     setStatus('Preparing image…');
     const c = await drawFileToCanvas(file);
     // Optional preprocessing: convert to grayscale + increase contrast
@@ -452,13 +486,13 @@ els.fileInput.onchange = async (e)=>{
       const d = imgData.data; // RGBA
       for (let i=0;i<d.length;i+=4){
         const g = (d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114);
-        // simple contrast curve
         const v = Math.max(0, Math.min(255, (g-128)*1.15 + 128));
         d[i]=d[i+1]=d[i+2]=v;
       }
       ctx.putImageData(imgData,0,0);
     }catch(_){/* ignore */}
 
+    setStatus('Uploading to OCR…');
     const text = await cloudOCRFromCanvas(c);
     const joined = (text||'').replace(/\s+/g,'');
     const m = joined.match(/\d{8}/);
@@ -478,13 +512,9 @@ els.fileInput.onchange = async (e)=>{
     console.error(err);
     setStatus('Photo OCR failed: ' + (err.message||err), 'err');
   } finally {
-    // reset input so the same photo can be re-selected if needed
+    els.btnPhoto.disabled = false;
     e.target.value = '';
   }
-};
-  const v = (els.manualCode.value||'').trim();
-  if (!/^\d{8}$/.test(v)) { setStatus('Enter exactly 8 digits', 'warn'); return; }
-  await inc(v); els.manualCode.value=''; refreshTable(); els.lastCode.textContent=v; els.lastCode.classList.remove('muted'); beep(true);
 };
 
 // quick diagnostics in console
