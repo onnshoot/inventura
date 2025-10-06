@@ -16,7 +16,7 @@
     .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
     button, input { padding:10px 12px; border-radius:10px; border:1px solid #2b2f43; background:#1a1f2e; color:#e8e8e8; }
     button:active { transform: scale(0.98); }
-    video, canvas { width:100%; border-radius:12px; background:#000; }
+    canvas { width:100%; border-radius:12px; background:#000; }
     table { width:100%; border-collapse: collapse; margin-top: 8px; }
     th, td { border-bottom:1px solid #2b2f43; padding:8px; text-align:left; }
     .muted { opacity: .75; }
@@ -26,9 +26,6 @@
     .ok { color:#8cffb7 }
     .warn { color:#ffd27d }
     .err { color:#ff9aa2 }
-    .videoWrap { position: relative; }
-    .videoWrap video { display:block; width:100%; border-radius:12px; background:#000; }
-    .roi { position:absolute; border:2px dashed #ffd27d; border-radius:10px; pointer-events:none; box-shadow: 0 0 0 9999px rgba(0,0,0,0); }
     /* Click feedback */
     .pulse { animation: pulse 300ms ease-in-out; }
     @keyframes pulse { 0%{transform:scale(1);} 50%{transform:scale(0.97);} 100%{transform:scale(1);} }
@@ -39,25 +36,11 @@
 <main>
   <div class="card">
     <div class="row">
-      <button id="btnStart">Start Camera</button>
-      <!-- <button id="btnScan">Scan Frame</button> -->
-      <!-- <label class="row"><input type="checkbox" id="autoScan" /> Auto-scan</label> -->
-      <label class="row"><input type="checkbox" id="ignorePrice" checked /> Ignore price (scan top)</label>
-      <div id="zoomWrap" class="row" style="display:none;">
-        <label>Zoom <input id="zoom" type="range" min="1" max="1" step="0.1" /></label>
-        <span id="zoomVal" class="muted">1×</span>
-      </div>
       <span id="status" class="muted">Idle</span>
       <button id="btnUpdate" title="Refresh cached files">Update</button>
-      <!-- <button id="btnReinit" title="Reload OCR engine">Reinit OCR</button> -->
       <button id="btnPhoto" title="Take/choose a photo for OCR">Photo mode</button>
       <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none;" />
     </div>
-    <div class="videoWrap">
-      <video id="video" playsinline muted></video>
-      <div id="roiBox" class="roi"></div>
-    </div>
-    <div id="preview" class="muted" style="margin-top:6px; display:none;">Preview ready</div>
     <canvas id="canvas" style="display:none;"></canvas>
     <div class="muted" style="margin-top:6px;">Tip: aim so the orange tag fills most of the frame. High contrast helps.</div>
   </div>
@@ -106,25 +89,19 @@ async function clearAll() { await setAll({}); }
 
 /* ---------- UI helpers ---------- */
 const els = {
-  video: document.getElementById('video'),
   canvas: document.getElementById('canvas'),
-  btnStart: document.getElementById('btnStart'),
-  btnScan: document.getElementById('btnScan'),
   status: document.getElementById('status'),
   countsWrap: document.getElementById('countsWrap'),
   scanTotal: document.getElementById('scanTotal'),
   uniqueTotal: document.getElementById('uniqueTotal'),
   lastCode: document.getElementById('lastCode'),
-  autoScan: document.getElementById('autoScan'),
   btnExport: document.getElementById('btnExport'),
   btnClear: document.getElementById('btnClear'),
   manualCode: document.getElementById('manualCode'),
   btnAddManual: document.getElementById('btnAddManual'),
-  zoom: document.getElementById('zoom'),
-  zoomWrap: document.getElementById('zoomWrap'),
-  zoomVal: document.getElementById('zoomVal'),
-  ignorePrice: document.getElementById('ignorePrice'),
-  roiBox: document.getElementById('roiBox'),
+  btnUpdate: document.getElementById('btnUpdate'),
+  btnPhoto: document.getElementById('btnPhoto'),
+  fileInput: document.getElementById('fileInput'),
 };
 
 function setStatus(msg, cls='muted') {
@@ -141,30 +118,11 @@ function flashButton(el){
 }
 
 function getROI(w,h){
-  // If ignoring price, scan roughly the upper-middle band (top 35% height, centered horizontally)
-  if (els.ignorePrice && els.ignorePrice.checked){
-    const x = Math.round(w * 0.10);
-    const y = Math.round(h * 0.10);
-    const rw = Math.round(w * 0.80);
-    const rh = Math.round(h * 0.35);
-    return {x,y,rw,rh};
-  }
-  return {x:0,y:0,rw:w,rh:h};
-}
-
-function updateROIOverlay(){
-  const v = els.video; if (!v.videoWidth || !v.videoHeight) return;
-  const w = v.clientWidth, h = v.clientHeight;
-  // Map ROI percentages to current element size
-  const rx = 0.10 * w, ry = 0.10 * h, rw = 0.80 * w, rh = 0.35 * h;
-  const show = els.ignorePrice && els.ignorePrice.checked;
-  els.roiBox.style.display = show ? 'block' : 'none';
-  if (show){
-    els.roiBox.style.left = rx + 'px';
-    els.roiBox.style.top = ry + 'px';
-    els.roiBox.style.width = rw + 'px';
-    els.roiBox.style.height = rh + 'px';
-  }
+  const x = Math.round(w * 0.10);
+  const y = Math.round(h * 0.10);
+  const rw = Math.round(w * 0.80);
+  const rh = Math.round(h * 0.35);
+  return {x,y,rw,rh};
 }
 
 function beep(ok=true){
@@ -205,54 +163,6 @@ els.countsWrap.addEventListener('click', async (e)=>{
   if (t.dataset.del){ const c=t.dataset.del; await setCount(c,0); refreshTable(); }
 });
 
-/* ---------- Camera ---------- */
-let stream = null, interval = null, scanning=false;
-
-async function startCamera() {
-  if (stream) return;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } });
-    els.video.srcObject = stream;
-    await els.video.play();
-    // Try to expose optical/digital zoom if supported
-    const track = stream.getVideoTracks()[0];
-    const caps = track.getCapabilities ? track.getCapabilities() : {};
-    const settings = track.getSettings ? track.getSettings() : {};
-    if (caps && 'zoom' in caps){
-      els.zoomWrap.style.display = 'flex';
-      els.zoom.min = caps.zoom.min ?? 1;
-      els.zoom.max = caps.zoom.max ?? 5;
-      els.zoom.step = caps.zoom.step ?? 0.1;
-      els.zoom.value = (settings.zoom ?? els.zoom.min);
-      els.zoomVal.textContent = Number(els.zoom.value).toFixed(1) + '×';
-      els.zoom.oninput = async (e)=>{
-        const z = Number(e.target.value);
-        els.zoomVal.textContent = z.toFixed(1) + '×';
-        try {
-          await track.applyConstraints({ advanced: [{ zoom: z }] });
-        } catch(err){
-          try { await track.applyConstraints({ zoom: z }); } catch(_){}
-        }
-      };
-    }
-    setStatus('Camera ready', 'ok');
-  } catch (e) {
-    console.error(e);
-    setStatus('Camera error: ' + e.message, 'err');
-  }
-}
-
-function grabFrameCanvas() {
-  const v = els.video;
-  const c = els.canvas;
-  const w = v.videoWidth, h = v.videoHeight;
-  if (!w || !h) return null;
-  const ctx = c.getContext('2d');
-  const {x,y,rw,rh} = getROI(w,h);
-  c.width = rw; c.height = rh;
-  ctx.drawImage(v, x, y, rw, rh, 0, 0, rw, rh);
-  return c;
-}
 
 // Draw image file to canvas and crop ROI (for Photo mode)
 async function drawFileToCanvas(file){
@@ -261,7 +171,7 @@ async function drawFileToCanvas(file){
     img.onload = ()=>{
       const c = els.canvas; const ctx = c.getContext('2d');
       const w = img.naturalWidth, h = img.naturalHeight;
-      // Crop the same ROI as live mode (top band)
+      // Crop the ROI (top band)
       const roi = getROI(w,h);
       c.width = roi.rw; c.height = roi.rh;
       ctx.drawImage(img, roi.x, roi.y, roi.rw, roi.rh, 0, 0, roi.rw, roi.rh);
@@ -347,37 +257,24 @@ function pickEightDigits(text, words=[]) {
 }
 
 async function scanOnce() {
-  // Photo mode only now
-  flashButton(els.btnScan);
-  setStatus('Photo mode: choose or take a photo');
-  els.fileInput.click();
+  if (els.fileInput) els.fileInput.click();
 }
 
 /* ---------- Events ---------- */
-els.btnStart.onclick = () => { flashButton(els.btnStart); startCamera(); };
-els.btnScan.onclick = () => { flashButton(els.btnScan); setStatus('Photo mode: choose or take a photo'); els.fileInput.click(); };
-els.btnUpdate = document.getElementById('btnUpdate');
-els.btnUpdate.onclick = async () => {
+if (els.btnUpdate) els.btnUpdate.onclick = async () => {
+  flashButton(els.btnUpdate);
   try {
-    // Unregister SWs
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
       for (const r of regs) await r.unregister();
     }
-    // Clear our caches
     const keys = await caches.keys();
     for (const k of keys) await caches.delete(k);
   } catch(e) { console.warn(e); }
   location.reload();
 };
-// Reinit OCR button removed (UI hidden)
-els.ignorePrice.onchange = updateROIOverlay;
-els.video.addEventListener('loadedmetadata', updateROIOverlay);
-window.addEventListener('resize', updateROIOverlay);
 
-
-
-els.btnExport.onclick = async () => {
+if (els.btnExport) els.btnExport.onclick = async () => {
   flashButton(els.btnExport);
   setStatus('Exporting CSV…');
   const data = await getAll();
@@ -389,14 +286,14 @@ els.btnExport.onclick = async () => {
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 };
 
-els.btnClear.onclick = async () => {
+if (els.btnClear) els.btnClear.onclick = async () => {
   flashButton(els.btnClear);
   if (!confirm('Delete all counts?')) return;
   await clearAll(); els.scanTotal.textContent='0'; els.lastCode.textContent='—'; els.lastCode.classList.add('muted'); refreshTable();
 };
 
-els.btnAddManual.onclick = async () => {
-  flashButton(document.getElementById('btnAddManual'));
+if (els.btnAddManual) els.btnAddManual.onclick = async () => {
+  flashButton(els.btnAddManual);
   const v = (els.manualCode.value||'').trim();
   if (!/^\d{8}$/.test(v)) { setStatus('Enter exactly 8 digits', 'warn'); return; }
   await inc(v);
@@ -408,59 +305,56 @@ els.btnAddManual.onclick = async () => {
   setStatus('Added ' + v, 'ok');
 };
 
-// ---- Photo mode events (top-level) ----
-els.btnPhoto = document.getElementById('btnPhoto');
-els.fileInput = document.getElementById('fileInput');
-
-els.btnPhoto.onclick = ()=>{ 
-  flashButton(els.btnPhoto);
-  setStatus('Photo mode: choose or take a photo'); 
-  els.fileInput.click(); 
-};
-els.fileInput.onchange = async (e)=>{
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
-  try{
-    els.btnPhoto.disabled = true;
-    setStatus('Preparing image…');
-    const c = await drawFileToCanvas(file);
-    // Show preview note
-    const p = document.getElementById('preview'); if (p) { p.style.display='block'; p.textContent = `Preview: ${c.width}×${c.height}`; }
-
-    setStatus('OCR: trying variants…');
-    const code = await runOcrPipeline(c);
-    if (code){
-      await inc(code);
-      els.lastCode.textContent = code; els.lastCode.classList.remove('muted');
-      els.scanTotal.textContent = String(parseInt(els.scanTotal.textContent||'0',10)+1);
-      setStatus('Captured ' + code, 'ok');
-      refreshTable();
-      beep(true);
-    } else {
-      setStatus('No 8-digit code found. Try a closer/clearer photo.', 'warn');
-      beep(false);
+if (els.btnPhoto && els.fileInput) {
+  els.btnPhoto.onclick = ()=>{ 
+    flashButton(els.btnPhoto);
+    setStatus('Photo mode: choose or take a photo'); 
+    els.fileInput.click(); 
+  };
+  els.fileInput.onchange = async (e)=>{
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try{
+      els.btnPhoto.disabled = true;
+      setStatus('Preparing image…');
+      const c = await drawFileToCanvas(file);
+      setStatus('OCR: trying variants…');
+      const code = await runOcrPipeline(c);
+      if (code){
+        await inc(code);
+        els.lastCode.textContent = code; els.lastCode.classList.remove('muted');
+        els.scanTotal.textContent = String(parseInt(els.scanTotal.textContent||'0',10)+1);
+        setStatus('Captured ' + code, 'ok');
+        refreshTable();
+        beep(true);
+      } else {
+        setStatus('No 8-digit code found. Try a closer/clearer photo.', 'warn');
+        beep(false);
+      }
+    }catch(err){
+      console.error(err);
+      setStatus('Photo OCR failed: ' + (err.message||err), 'err');
+    } finally {
+      els.btnPhoto.disabled = false;
+      e.target.value = '';
     }
-  }catch(err){
-    console.error(err);
-    setStatus('Photo OCR failed: ' + (err.message||err), 'err');
-  } finally {
-    els.btnPhoto.disabled = false;
-    e.target.value = '';
-  }
-};
+  };
+}
 
-// Drag & drop support
+// Drag & drop
 window.addEventListener('dragover', e=>{ e.preventDefault(); });
 window.addEventListener('drop', async e=>{
   e.preventDefault();
+  if (!els.fileInput) return;
   const file = e.dataTransfer?.files?.[0];
   if (!file) return;
-  els.fileInput.files = e.dataTransfer.files; // for consistency
+  els.fileInput.files = e.dataTransfer.files;
   els.fileInput.onchange({ target: els.fileInput });
 });
 
-// Clipboard paste support (iOS 16+ allows pasting images with permission)
+// Clipboard paste
 window.addEventListener('paste', async e=>{
+  if (!els.fileInput) return;
   const item = [...(e.clipboardData?.items||[])].find(i=> i.type.startsWith('image/'));
   if (!item) return;
   const file = item.getAsFile();
@@ -469,27 +363,23 @@ window.addEventListener('paste', async e=>{
 });
 
 // quick diagnostics in console
-(async ()=>{
-  try{
-    const urls = [ './vendor/localforage/localforage.min.js' ];
-    for (const u of urls){
-      try { await fetch(u, { method:'HEAD' }); console.debug('[OK]', u); }
-      catch(e){ console.error('[MISSING]', u, e); }
-    }
-  }catch(e){/* ignore */}
-})();
+  (async ()=>{
+    try{
+      const urls = [ './vendor/localforage/localforage.min.js' ];
+      for (const u of urls){
+        try { await fetch(u, { method:'HEAD' }); console.debug('[OK]', u); }
+        catch(e){ console.error('[MISSING]', u, e); }
+      }
+    }catch(e){/* ignore */}
+  })();
 
 window.addEventListener('load', refreshTable);
 
 /* ---------- Offline cache (FULLY OFFLINE) ---------- */
 if ('serviceWorker' in navigator) {
   const sw = URL.createObjectURL(new Blob([`
-    const CACHE = 'inv-v5';
-    const FILES = [
-      './',
-      './index.html',
-      './vendor/localforage/localforage.min.js'
-    ];
+    const CACHE = 'inv-v6';
+    const FILES = [ './', './index.html', './vendor/localforage/localforage.min.js' ];
 
     self.addEventListener('install', e => {
       e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
