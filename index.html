@@ -32,7 +32,7 @@
   </style>
 </head>
 <body>
-<header>Inventory Scanner</header>
+<header>Ežu inventūra</header>
 <main>
   <div class="card">
     <div class="row">
@@ -45,6 +45,7 @@
         <span id="zoomVal" class="muted">1×</span>
       </div>
       <span id="status" class="muted">Idle</span>
+      <button id="btnUpdate" title="Refresh cached files">Update</button>
     </div>
     <div class="videoWrap">
       <video id="video" playsinline muted></video>
@@ -228,18 +229,30 @@ async function startCamera() {
 }
 
 /* ---------- OCR (Tesseract) ---------- */
-const worker = Tesseract.createWorker();
+const worker = Tesseract.createWorker({
+  workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
+  corePath:   'https://cdn.jsdelivr.net/npm/tesseract.js-core@v5.0.0/tesseract-core.wasm.js',
+  langPath:   'https://tessdata.projectnaptha.com/4.0.0_fast',
+  logger: m => {
+    const p = Math.round((m.progress||0)*100);
+    setStatus(`OCR ${p}% — ${m.status||''}`);
+  }
+});
 let workerReady = false;
 (async () => {
-  setStatus('Loading OCR…');
-  await worker.load();
-  await worker.loadLanguage('eng');
-  await worker.initialize('eng');
-  // digits only
-  await worker.setParameters({ tessedit_char_whitelist: '0123456789' });
-  workerReady = true;
-  setStatus('OCR ready', 'ok');
-  updateROIOverlay();
+  try {
+    setStatus('Loading OCR…');
+    await worker.load();
+    await worker.loadLanguage('eng');
+    await worker.initialize('eng');
+    await worker.setParameters({ tessedit_char_whitelist: '0123456789' });
+    workerReady = true;
+    setStatus('OCR ready', 'ok');
+    updateROIOverlay();
+  } catch (e) {
+    console.error(e);
+    setStatus('OCR load failed. Tap Update.', 'err');
+  }
 })();
 
 function grabFrameCanvas() {
@@ -294,6 +307,20 @@ async function scanOnce() {
 /* ---------- Events ---------- */
 els.btnStart.onclick = startCamera;
 els.btnScan.onclick = () => { if (!scanning) scanOnce(); };
+els.btnUpdate = document.getElementById('btnUpdate');
+els.btnUpdate.onclick = async () => {
+  try {
+    // Unregister SWs
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const r of regs) await r.unregister();
+    }
+    // Clear our caches
+    const keys = await caches.keys();
+    for (const k of keys) await caches.delete(k);
+  } catch(e) { console.warn(e); }
+  location.reload();
+};
 els.ignorePrice.onchange = updateROIOverlay;
 els.video.addEventListener('loadedmetadata', updateROIOverlay);
 window.addEventListener('resize', updateROIOverlay);
@@ -333,7 +360,7 @@ window.addEventListener('load', refreshTable);
 if ('serviceWorker' in navigator) {
   const sw = URL.createObjectURL(new Blob([`
     self.addEventListener('install', e => {
-      e.waitUntil(caches.open('inv-v1').then(c => c.addAll(['./'])));
+      e.waitUntil(caches.open('inv-v2').then(c => c.addAll(['./'])));
       self.skipWaiting();
     });
     self.addEventListener('fetch', e => {
