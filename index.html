@@ -1,196 +1,275 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Inventūra</title>
-  <!-- PWA basics -->
-  <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;Inventory Counter&quot;,&quot;short_name&quot;:&quot;Inventūra&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;#111&quot;,&quot;theme_color&quot;:&quot;#111&quot;}">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EZU Inventūra</title>
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="manifest" href="data:application/manifest+json,{\"name\":\"EZU Inventura\",\"short_name\":\"Inventura\",\"display\":\"standalone\",\"start_url\":\".\"}" />
   <style>
-    :root{
-      --bg:#0f1115; --card:#151822; --line:#25293a; --muted:#9aa3b2; --ink:#e8e8e8;
-      --btn-bg:#1a1f2e; --btn-bd:#2b2f43; --ok:#8cffb7; --warn:#ffd27d; --err:#ff9aa2;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:var(--bg);color:var(--ink)}
-    header{padding:12px 16px;font-weight:700;background:var(--card);position:sticky;top:0;z-index:10;border-bottom:1px solid var(--line)}
-    main{padding:12px 16px 120px}
-    .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:12px 0}
-    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    button,input{padding:10px 12px;border-radius:10px;border:1px solid var(--btn-bd);background:var(--btn-bg);color:var(--ink)}
-    input{min-width:220px}
-    button:active{transform:scale(.98)}
-    table{width:100%;border-collapse:collapse;margin-top:8px}
-    th,td{border-bottom:1px solid var(--line);padding:8px;text-align:left}
+    :root { --bg:#0f1115; --card:#171a21; --muted:#a3adba; --text:#e7ecf3; --accent:#4f8cff; --danger:#ff6b6b; }
+    html,body{height:100%;}
+    body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;}
+    .wrap{max-width:980px;margin:0 auto;padding:20px;}
+    header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+    h1{font-size:20px;margin:0 8px 0 0}
+    .card{background:var(--card);border:1px solid #222733;border-radius:12px;padding:14px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    input[type="text"], input[type="number"]{background:#0c0e13;border:1px solid #2a3140;color:var(--text);border-radius:10px;padding:12px 14px;outline:none}
+    input[type="text"]{flex:1;min-width:180px;font-size:18px;letter-spacing:1px}
+    button{background:#1f2430;border:1px solid #2a3140;color:var(--text);border-radius:10px;padding:10px 14px;cursor:pointer}
+    button:hover{border-color:#3a4256}
+    .btn-accent{background:var(--accent);border-color:var(--accent);color:white}
+    .btn-danger{background:transparent;border-color:var(--danger);color:var(--danger)}
     .muted{color:var(--muted)}
-    .pill{font-variant-numeric:tabular-nums;padding:4px 8px;border-radius:9999px;background:#1f2435;border:1px solid var(--btn-bd)}
-    .grid{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:center}
-    .footer{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);padding:8px 12px;display:flex;gap:8px;flex-wrap:wrap}
-    .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
-    .pulse{animation:pulse 300ms ease-in-out}
-    @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(.97)}100%{transform:scale(1)}}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+    table{width:100%;border-collapse:separate;border-spacing:0 8px;margin-top:12px}
+    thead th{font-weight:600;color:var(--muted);text-align:left;padding:6px 10px}
+    tbody tr{background:#0c0e13}
+    tbody td{padding:8px 10px;border-top:1px solid #202634;border-bottom:1px solid #202634}
+    tbody tr:first-child td{border-top-left-radius:10px;border-top-right-radius:10px}
+    tbody tr:last-child td{border-bottom-left-radius:10px;border-bottom-right-radius:10px}
+
+    .code{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;letter-spacing:1px}
+    .qty{display:flex;align-items:center;gap:6px}
+    .qty button{min-width:36px}
+
+    .footer{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px}
+    .total{font-weight:600}
+
+    .pill{padding:6px 10px;border-radius:999px;background:#12151c;border:1px solid #232a39;color:var(--muted)}
+    .wide{width:100%}
+
+    /* iOS Safari download fallback */
+    #fallbackBox{display:none;margin-top:10px}
+    textarea{width:100%;min-height:120px;background:#0c0e13;color:var(--text);border:1px solid #2a3140;border-radius:10px;padding:10px}
+
+    @media (hover:none){ button:active{transform:scale(0.98)} }
   </style>
 </head>
 <body>
-<header>Inventūra</header>
-<main>
-  <div class="card">
-    <div class="row">
-      <span id="status" class="muted">Idle</span>
-      <button id="btnUpdate" title="Refresh cached files">Update</button>
-    </div>
+  <div class="wrap">
+    <header>
+      <h1>EZU Inventūra</h1>
+      <span class="pill" id="status">Saglabā lokāli</span>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <label for="code" class="muted">8‑ciparu kods</label>
+        <input id="code" type="text" inputmode="numeric" pattern="\\d{8}" placeholder="00000000" autocomplete="one-time-code" aria-label="8 ciparu kods" />
+        <button id="addBtn" class="btn-accent">Pievienot / +1 (Enter)</button>
+        <button id="minusBtn">-1</button>
+      </div>
+      <div class="toolbar">
+        <button id="clearBtn" class="btn-danger">Notīrīt visu</button>
+        <button id="exportCsvBtn">Eksportēt CSV</button>
+        <button id="exportJsonBtn">Eksportēt JSON</button>
+        <button id="copyCsvBtn">Kopēt CSV starpliktuvē</button>
+        <span class="muted">Dati tiek glabāti šajā pārlūkā (localStorage).</span>
+      </div>
+
+      <div id="fallbackBox" class="card">
+        <div class="muted" style="margin-bottom:6px">iOS Safari lejupielāde var nedarboties. Nokopē datus no laukā zemāk:</div>
+        <textarea id="fallbackText" readonly></textarea>
+      </div>
+
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>Kods</th>
+            <th>Skaits</th>
+            <th>Darbības</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+
+      <div class="footer">
+        <div class="total">Kopā vienību: <span id="total">0</span></div>
+        <div class="muted">Pēdējā saglabāšana: <span id="savedAt">—</span></div>
+      </div>
+    </section>
   </div>
 
-  <div class="card">
-    <div class="row">
-      <b>Counts</b>
-      <button id="btnExport" title="Export CSV (code,count)">Export CSV</button>
-      <button id="btnClear" title="Delete all">Clear All</button>
-    </div>
-    <div class="row" style="margin-top:8px;gap:6px">
-      <input id="manualCode" placeholder="Manual add: 8 digits" inputmode="numeric" maxlength="8" autocomplete="off" />
-      <button id="btnAddManual">Add</button>
-    </div>
-    <div id="countsWrap" style="margin-top:4px"></div>
-  </div>
-</main>
-
-<div class="footer">
-  <span>Scanned: <span id="scanTotal" class="pill">0</span></span>
-  <span>Unique: <span id="uniqueTotal" class="pill">0</span></span>
-  <span>Last: <span id="lastCode" class="pill muted">—</span></span>
-</div>
-
-<!-- libs (LOCAL copy for full offline) -->
-<script src="./vendor/localforage/localforage.min.js"></script>
 <script>
-  // -------- Storage (IndexedDB via localForage) --------
-  const store = localforage.createInstance({ name:'inventory', storeName:'codes' });
-  const getAll = async()=> (await store.getItem('data')) || {};
-  const setAll = async(d)=> store.setItem('data', d);
-  const inc = async(code)=>{ const d=await getAll(); d[code]=(d[code]||0)+1; await setAll(d); return d[code]; };
-  const setCount = async(code,val)=>{ const d=await getAll(); if(val<=0) delete d[code]; else d[code]=val; await setAll(d); };
-  const clearAll = async()=> setAll({});
+(function(){
+  'use strict';
+  var KEY = 'ezu-inventura-v1';
+  var state = load() || { items: {} }; // { code: count }
+  var codeEl = document.getElementById('code');
+  var addBtn = document.getElementById('addBtn');
+  var minusBtn = document.getElementById('minusBtn');
+  var tbody = document.getElementById('tbody');
+  var totalEl = document.getElementById('total');
+  var savedAtEl = document.getElementById('savedAt');
+  var statusEl = document.getElementById('status');
+  var exportCsvBtn = document.getElementById('exportCsvBtn');
+  var exportJsonBtn = document.getElementById('exportJsonBtn');
+  var copyCsvBtn = document.getElementById('copyCsvBtn');
+  var clearBtn = document.getElementById('clearBtn');
+  var fallbackBox = document.getElementById('fallbackBox');
+  var fallbackText = document.getElementById('fallbackText');
 
-  // -------- UI refs --------
-  const els = {
-    status: document.getElementById('status'),
-    countsWrap: document.getElementById('countsWrap'),
-    scanTotal: document.getElementById('scanTotal'),
-    uniqueTotal: document.getElementById('uniqueTotal'),
-    lastCode: document.getElementById('lastCode'),
-    btnExport: document.getElementById('btnExport'),
-    btnClear: document.getElementById('btnClear'),
-    manualCode: document.getElementById('manualCode'),
-    btnAddManual: document.getElementById('btnAddManual'),
-    btnUpdate: document.getElementById('btnUpdate')
-  };
+  // Helpers
+  function pad(n){ return (''+n).padStart(8,'0'); }
+  function nowStr(){ var d=new Date(); return d.toLocaleString(); }
+  function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream; }
 
-  // -------- Helpers --------
-  const setStatus = (msg, cls='muted')=>{ els.status.className=cls; els.status.textContent=msg; };
-  const flashButton = (el)=>{ if(!el) return; el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); };
-  const beep = (ok=true)=>{ try{ const ctx=new (window.AudioContext||window.webkitAudioContext)(); const o=ctx.createOscillator(); const g=ctx.createGain(); o.type= ok?'triangle':'sawtooth'; o.frequency.value= ok?880:220; o.connect(g); g.connect(ctx.destination); g.gain.value=0.02; o.start(); setTimeout(()=>{o.stop(); ctx.close()}, 120);}catch(e){} };
-  const onlyDigits = (s)=> s.replace(/\D+/g,'');
-
-  const totalCount = (obj)=> Object.values(obj).reduce((a,b)=>a+Number(b||0),0);
-
-  // -------- Render table --------
-  async function refresh() {
-    const data = await getAll();
-    const entries = Object.entries(data).sort((a,b)=>a[0].localeCompare(b[0]));
-    els.uniqueTotal.textContent = entries.length;
-    els.scanTotal.textContent = totalCount(data);
-
-    els.countsWrap.innerHTML = entries.length
-      ? `<table><thead><tr><th>Code</th><th>Count</th><th></th></tr></thead><tbody>
-           ${entries.map(([code,cnt])=>`
-             <tr>
-               <td><code>${code}</code></td>
-               <td class="grid">
-                 <span>${cnt}</span>
-                 <button data-dec="${code}" title="-1">−</button>
-                 <button data-inc="${code}" title="+1">+</button>
-               </td>
-               <td><button data-del="${code}" title="Delete">Delete</button></td>
-             </tr>`).join('')}
-         </tbody></table>`
-      : `<div class="muted">No entries yet.</div>`;
+  function save(){
+    try {
+      localStorage.setItem(KEY, JSON.stringify({items: state.items, savedAt: Date.now()}));
+      statusEl.textContent = 'Saglabāts';
+      savedAtEl.textContent = nowStr();
+      setTimeout(function(){ statusEl.textContent = 'Saglabā lokāli'; }, 1200);
+    } catch(e){ console.error(e); statusEl.textContent = 'Saglabāšana neizdevās'; }
+  }
+  function load(){
+    try{ var raw = localStorage.getItem(KEY); return raw? JSON.parse(raw) : null; }catch(_){ return null; }
   }
 
-  els.countsWrap.addEventListener('click', async (e)=>{
-    const t = e.target; if(!(t instanceof HTMLElement)) return;
-    if (t.dataset.inc){ const c=t.dataset.inc; await setCount(c, ((await getAll())[c]||0)+1); refresh(); }
-    if (t.dataset.dec){ const c=t.dataset.dec; await setCount(c, ((await getAll())[c]||0)-1); refresh(); }
-    if (t.dataset.del){ const c=t.dataset.del; await setCount(c, 0); refresh(); }
+  function render(){
+    // clear tbody
+    while(tbody.firstChild) tbody.removeChild(tbody.firstChild);
+    var total = 0;
+    var codes = Object.keys(state.items).sort();
+    codes.forEach(function(code){
+      var count = state.items[code];
+      total += count;
+      var tr = document.createElement('tr');
+
+      var tdCode = document.createElement('td');
+      tdCode.textContent = code; tdCode.className = 'code';
+
+      var tdQty = document.createElement('td');
+      var qtyWrap = document.createElement('div'); qtyWrap.className='qty';
+      var minus = document.createElement('button'); minus.textContent='−'; minus.title='Samazināt';
+      var qty = document.createElement('input'); qty.type='number'; qty.value=count; qty.min='0'; qty.style.width='80px'; qty.setAttribute('aria-label','Skaits');
+      var plus = document.createElement('button'); plus.textContent='+'; plus.className='btn-accent'; plus.title='Palielināt';
+
+      minus.addEventListener('click', function(){ adjust(code, -1); });
+      plus.addEventListener('click', function(){ adjust(code, +1); });
+      qty.addEventListener('change', function(){ setCount(code, parseInt(qty.value||'0',10)); });
+
+      qtyWrap.appendChild(minus); qtyWrap.appendChild(qty); qtyWrap.appendChild(plus);
+      tdQty.appendChild(qtyWrap);
+
+      var tdActions = document.createElement('td');
+      var del = document.createElement('button'); del.textContent='Dzēst'; del.className='btn-danger';
+      del.addEventListener('click', function(){ remove(code); });
+      tdActions.appendChild(del);
+
+      tr.appendChild(tdCode); tr.appendChild(tdQty); tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
+    totalEl.textContent = total;
+    var loaded = load();
+    if(loaded && loaded.savedAt){ savedAtEl.textContent = new Date(loaded.savedAt).toLocaleString(); }
+  }
+
+  function normalizeCode(input){
+    var digits = (input||'').replace(/\D/g,'');
+    if(digits.length === 8) return digits;
+    return null;
+  }
+
+  function add(code){
+    if(!state.items[code]) state.items[code]=0;
+    state.items[code] += 1;
+    save(); render();
+  }
+
+  function adjust(code, delta){
+    if(!state.items[code]) return; // nothing to do
+    state.items[code] = Math.max(0, (state.items[code]||0) + delta);
+    if(state.items[code] === 0) delete state.items[code];
+    save(); render();
+  }
+
+  function setCount(code, val){
+    if(!(val>=0)) return;
+    if(val===0){ delete state.items[code]; } else { state.items[code]=val; }
+    save(); render();
+  }
+
+  function remove(code){
+    delete state.items[code]; save(); render();
+  }
+
+  function asCsv(){
+    var lines = ['code,count'];
+    Object.keys(state.items).sort().forEach(function(c){ lines.push(c+','+state.items[c]); });
+    return lines.join('\n');
+  }
+  function asJson(){
+    return JSON.stringify({ items: state.items, exportedAt: new Date().toISOString() }, null, 2);
+  }
+
+  function download(filename, mime, text){
+    try{
+      var blob = new Blob([text], {type: mime});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = filename;
+      // iOS Safari often ignores download attribute; open a new tab as fallback
+      if(isIOS()){
+        // try open
+        var opened = window.open('data:' + mime + ';charset=utf-8,' + encodeURIComponent(text), '_blank');
+        if(!opened){ fallbackBox.style.display='block'; fallbackText.value=text; }
+      } else {
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      }
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+    }catch(e){ console.error(e); fallbackBox.style.display='block'; fallbackText.value=text; }
+  }
+
+  function copyToClipboard(text){
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      return navigator.clipboard.writeText(text).then(function(){ statusEl.textContent='Nokopēts'; setTimeout(function(){ statusEl.textContent='Saglabā lokāli'; },1200); });
+    } else {
+      // fallback
+      fallbackBox.style.display='block'; fallbackText.value=text; fallbackText.focus(); fallbackText.select();
+      try{ document.execCommand('copy'); }catch(_){}
+    }
+  }
+
+  // Events
+  addBtn.addEventListener('click', function(){
+    var code = normalizeCode(codeEl.value);
+    if(!code){ codeEl.focus(); codeEl.select(); return; }
+    add(code); codeEl.value=''; codeEl.focus();
+  });
+  minusBtn.addEventListener('click', function(){
+    var code = normalizeCode(codeEl.value);
+    if(!code){ codeEl.focus(); codeEl.select(); return; }
+    adjust(code, -1); codeEl.value=''; codeEl.focus();
+  });
+  codeEl.addEventListener('keydown', function(e){
+    if(e.key==='Enter') { addBtn.click(); }
   });
 
-  // -------- Events --------
-  els.manualCode.addEventListener('input',()=>{ els.manualCode.value = onlyDigits(els.manualCode.value).slice(0,8); });
-  els.manualCode.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ els.btnAddManual.click(); } });
+  exportCsvBtn.addEventListener('click', function(){
+    var csv = asCsv();
+    var stamp = new Date().toISOString().replace(/[-:T]/g,'').slice(0,12);
+    download('inventory-'+stamp+'.csv', 'text/csv', csv);
+  });
+  exportJsonBtn.addEventListener('click', function(){
+    var json = asJson();
+    var stamp = new Date().toISOString().replace(/[-:T]/g,'').slice(0,12);
+    download('inventory-'+stamp+'.json', 'application/json', json);
+  });
+  copyCsvBtn.addEventListener('click', function(){ copyToClipboard(asCsv()); });
 
-  els.btnAddManual.onclick = async () => {
-    flashButton(els.btnAddManual);
-    const v = (els.manualCode.value||'').trim();
-    if (!/^\d{8}$/.test(v)) { setStatus('Enter exactly 8 digits', 'warn'); beep(false); return; }
-    await inc(v);
-    els.manualCode.value='';
-    els.lastCode.textContent=v; els.lastCode.classList.remove('muted');
-    setStatus('Added '+v, 'ok'); beep(true);
-    refresh();
-  };
+  clearBtn.addEventListener('click', function(){
+    if(confirm('Vai tiešām dzēst visu?')){ state.items = {}; save(); render(); }
+  });
 
-  els.btnExport.onclick = async () => {
-    flashButton(els.btnExport);
-    const data = await getAll();
-    const rows = Object.entries(data).map(([k,v])=>`${k},${v}`).join('\n');
-    const blob = new Blob([rows], { type:'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download='inventory_counts.csv';
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    setStatus('CSV exported', 'ok');
-  };
-
-  els.btnClear.onclick = async () => {
-    flashButton(els.btnClear);
-    if (!confirm('Delete all counts?')) return;
-    await clearAll();
-    els.lastCode.textContent='—'; els.lastCode.classList.add('muted');
-    setStatus('All data cleared', 'ok');
-    refresh();
-  };
-
-  els.btnUpdate.onclick = async () => {
-    flashButton(els.btnUpdate);
-    try {
-      if ('serviceWorker' in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        for (const r of regs) await r.unregister();
-      }
-      const keys = await caches.keys();
-      for (const k of keys) await caches.delete(k);
-    } catch(e) { console.warn(e); }
-    location.reload();
-  };
-
-  // -------- Service Worker (cache-first) --------
-  if ('serviceWorker' in navigator) {
-    const swCode = `
-      const CACHE='inv-v1';
-      const FILES=['./','./index.html','./vendor/localforage/localforage.min.js'];
-      self.addEventListener('install',e=>{ e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES))); self.skipWaiting(); });
-      self.addEventListener('activate',e=>{ e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))); self.clients.claim(); });
-      self.addEventListener('fetch',e=>{ e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))); });
-    `;
-    const swUrl = URL.createObjectURL(new Blob([swCode],{type:'text/javascript'}));
-    navigator.serviceWorker.register(swUrl);
-  }
-
-  // -------- Init --------
-  refresh();
-  setStatus('Ready');
+  // Init
+  render();
+  codeEl.focus();
+})();
 </script>
 </body>
 </html>
