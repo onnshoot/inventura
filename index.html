@@ -169,7 +169,7 @@ function beep(ok=true){
 }
 
 /* ---------- Camera + ROI + Autoscan ---------- */
-let stream = null; let interval = null; let scanning = false; let uploading = false; let lastCodeAt = 0; let lastCodeVal = '';
+let stream = null; let interval = null; let uploading = false; let lastCodeAt = 0; let lastCodeVal = '';
 
 function updateROIOverlay(){
   const v = els.video; if (!v) return;
@@ -186,7 +186,9 @@ function updateROIOverlay(){
 async function startCamera(){
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ setStatus('Camera not supported', 'err'); return; }
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } });
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
     els.video.srcObject = stream; await els.video.play();
     setStatus('Camera ready', 'ok');
     updateROIOverlay();
@@ -383,9 +385,12 @@ if (els.btnPhoto && els.fileInput) {
       els.btnPhoto.disabled = true;
       setStatus('Preparing image…');
       const c = await drawFileToCanvas(file);
-      setStatus('OCR: trying variants…');
-      const code = await runOcrPipeline(c);
-      if (code){
+      setStatus('Sending to OCR Server…');
+      const text = await cloudOCRFromCanvas(c);
+      const joined = (text||'').replace(/\s+/g,'');
+      const m = joined.match(/\d{8}/);
+      if (m){
+        const code = m[0];
         await inc(code);
         els.lastCode.textContent = code; els.lastCode.classList.remove('muted');
         els.scanTotal.textContent = String(parseInt(els.scanTotal.textContent||'0',10)+1);
