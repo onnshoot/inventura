@@ -65,7 +65,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>EZU Inventūra</h1>
+      <h1>EŽU Inventūra</h1>
       <span class="pill" id="status">Saglabā lokāli</span>
     </header>
 
@@ -73,8 +73,6 @@
       <form id="addForm" class="row" novalidate>
         <label for="code" class="muted">8‑ciparu kods</label>
         <input id="code" type="text" inputmode="numeric" pattern="\\d{8}" placeholder="00000000" autocomplete="one-time-code" aria-label="8 ciparu kods" />
-        <button id="addBtn" class="btn-accent" type="submit">Pievienot / +1</button>
-        <button id="minusBtn" type="button">-1</button>
       </form>
       <div class="toolbar">
         <button id="clearBtn" class="btn-danger">Notīrīt visu</button>
@@ -111,8 +109,6 @@
   var KEY = 'ezu-inventura-v1';
   var state = load() || { items: {} }; // { code: count }
   var codeEl = document.getElementById('code');
-  var addBtn = document.getElementById('addBtn');
-  var minusBtn = document.getElementById('minusBtn');
   var tbody = document.getElementById('tbody');
   var totalEl = document.getElementById('total');
   var savedAtEl = document.getElementById('savedAt');
@@ -249,22 +245,11 @@
     e.preventDefault();
     var code = normalizeCode(codeEl.value);
     if(!code){ codeEl.focus(); codeEl.select(); return; }
-    add(code); codeEl.value=''; codeEl.focus();
+    add(code);
+    codeEl.value='';
+    codeEl.focus();
   });
 
-  addBtn.addEventListener('click', function(){
-    var code = normalizeCode(codeEl.value);
-    if(!code){ codeEl.focus(); codeEl.select(); return; }
-    add(code); codeEl.value=''; codeEl.focus();
-  });
-  minusBtn.addEventListener('click', function(){
-    var code = normalizeCode(codeEl.value);
-    if(!code){ codeEl.focus(); codeEl.select(); return; }
-    adjust(code, -1); codeEl.value=''; codeEl.focus();
-  });
-  codeEl.addEventListener('keydown', function(e){
-    if(e.key==='Enter') { addBtn.click(); }
-  });
   codeEl.addEventListener('input', function(){
     var digits = (codeEl.value || '').replace(/\D/g,'');
     if(digits.length === 8){
@@ -275,6 +260,9 @@
         codeEl.focus();
       }
     }
+  });
+  codeEl.addEventListener('blur', function(){
+    codeEl.value = '';
   });
 
   shareCsvBtn.addEventListener('click', function(){
