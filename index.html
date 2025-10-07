@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Inventūra</title>
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -25,7 +25,7 @@
     .muted{color:var(--muted)}
     .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 
-    table{width:100%;border-collapse:separate;border-spacing:0 8px;margin-top:12px}
+    table{width:100%;border-collapse:separate;border-spacing:0 8px;margin-top:12px;table-layout:fixed}
     thead th{font-weight:600;color:var(--muted);text-align:left;padding:6px 10px}
     tbody tr{background:#0c0e13}
     tbody td{padding:8px 10px;border-top:1px solid #202634;border-bottom:1px solid #202634}
@@ -33,9 +33,6 @@
     tbody tr:last-child td{border-bottom-left-radius:10px;border-bottom-right-radius:10px}
 
     .code{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;letter-spacing:1px}
-    .qty{display:flex;align-items:center;gap:6px}
-    .qty button{min-width:36px}
-
     .footer{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px}
     .total{font-weight:600}
 
@@ -48,7 +45,7 @@
 
     @media (hover:none){ button:active{transform:scale(0.98)} }
 
-    html,body{overscroll-behavior:contain; touch-action:manipulation;}
+    html,body{overscroll-behavior:contain;}
     @media (max-width: 480px){
       .wrap{padding:12px}
       header{margin-bottom:10px}
@@ -58,15 +55,14 @@
       table{font-size:14px}
       thead th, tbody td{padding:8px}
     }
-    /* Fullscreen overlay for in-app table view */
-    #tableOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:none;z-index:9999}
-    #tableCard{position:absolute;inset:10px;background:#0c0e13;border:1px solid #2a3140;border-radius:14px;display:flex;flex-direction:column}
-    #tableHead{padding:12px 14px;border-bottom:1px solid #2a3140;display:flex;gap:8px;align-items:center;justify-content:space-between}
-    #tableBody{padding:10px;overflow:auto}
-    #tableBody table{width:100%;border-collapse:collapse}
-    #tableBody th,#tableBody td{border:1px solid #202634;padding:8px}
-    #tableFoot{padding:10px;border-top:1px solid #2a3140;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-    .btn-link{background:transparent;border:1px solid #2a3140}
+    thead th:nth-child(1), tbody td:nth-child(1){width:36%;word-break:break-all}
+    thead th:nth-child(2), tbody td:nth-child(2){width:32%;}
+    thead th:nth-child(3), tbody td:nth-child(3){width:32%;text-align:right}
+    .qty{display:flex;align-items:center;gap:4px}
+    .qty button{min-width:30px;padding:8px 10px}
+    .qty input{width:64px;padding:8px 10px;text-align:center}
+    .table-actions{display:flex;justify-content:flex-end}
+    .table-actions button{padding:8px 10px}
   </style>
 </head>
 <body>
@@ -85,33 +81,14 @@
       </form>
       <div class="toolbar">
         <button id="clearBtn" class="btn-danger">Notīrīt visu</button>
-        <button id="exportCsvBtn">Eksportēt CSV</button>
-        <button id="exportJsonBtn">Eksportēt JSON</button>
-        <button id="copyCsvBtn">Kopēt CSV starpliktuvē</button>
-        <button id="openTableBtn">Atvērt tabulu (kopēšanai)</button>
-        <button id="shareCsvBtn">Kopīgot CSV (tālrunī)</button>
+        <button id="shareCsvBtn" class="btn-accent">Kopīgot CSV (tālrunī)</button>
         <span class="muted">Dati tiek glabāti šajā pārlūkā (localStorage).</span>
       </div>
 
       <div id="fallbackBox" class="card">
         <div class="muted" style="margin-bottom:6px">iOS Safari lejupielāde var nedarboties. Nokopē datus no laukā zemāk:</div>
+        <div id="fallbackFilename" class="muted" style="margin-bottom:6px;display:none"></div>
         <textarea id="fallbackText" readonly></textarea>
-      </div>
-
-      <div id="tableOverlay" role="dialog" aria-modal="true" aria-labelledby="tableTitle">
-        <div id="tableCard">
-          <div id="tableHead">
-            <strong id="tableTitle">Inventāra tabula</strong>
-            <div style="display:flex;gap:8px">
-              <button id="closeTableBtn" class="btn-link" type="button">Aizvērt</button>
-            </div>
-          </div>
-          <div id="tableBody"></div>
-          <div id="tableFoot">
-            <button id="copyTableCsvBtn" type="button">Kopēt CSV</button>
-            <button id="shareTableCsvBtn" type="button" class="btn-accent">Kopīgot CSV</button>
-          </div>
-        </div>
       </div>
 
       <table id="tbl">
@@ -144,25 +121,24 @@
   var totalEl = document.getElementById('total');
   var savedAtEl = document.getElementById('savedAt');
   var statusEl = document.getElementById('status');
-  var exportCsvBtn = document.getElementById('exportCsvBtn');
-  var exportJsonBtn = document.getElementById('exportJsonBtn');
-  var copyCsvBtn = document.getElementById('copyCsvBtn');
-  var openTableBtn = document.getElementById('openTableBtn');
   var shareCsvBtn = document.getElementById('shareCsvBtn');
   var clearBtn = document.getElementById('clearBtn');
   var fallbackBox = document.getElementById('fallbackBox');
+  var fallbackFilename = document.getElementById('fallbackFilename');
   var fallbackText = document.getElementById('fallbackText');
   var addForm = document.getElementById('addForm');
-  var tableOverlay = document.getElementById('tableOverlay');
-  var tableBody = document.getElementById('tableBody');
-  var closeTableBtn = document.getElementById('closeTableBtn');
-  var copyTableCsvBtn = document.getElementById('copyTableCsvBtn');
-  var shareTableCsvBtn = document.getElementById('shareTableCsvBtn');
 
   // Helpers
-  function pad(n){ return (''+n).padStart(8,'0'); }
   function nowStr(){ var d=new Date(); return d.toLocaleString(); }
-  function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream; }
+  function stamp(){
+    var d = new Date();
+    var yyyy = d.getFullYear();
+    var mm = String(d.getMonth()+1).padStart(2,'0');
+    var dd = String(d.getDate()).padStart(2,'0');
+    var hh = String(d.getHours()).padStart(2,'0');
+    var min = String(d.getMinutes()).padStart(2,'0');
+    return yyyy+mm+dd+'-'+hh+min;
+  }
 
   function save(){
     try {
@@ -192,7 +168,7 @@
       var tdQty = document.createElement('td');
       var qtyWrap = document.createElement('div'); qtyWrap.className='qty';
       var minus = document.createElement('button'); minus.textContent='−'; minus.title='Samazināt';
-      var qty = document.createElement('input'); qty.type='number'; qty.value=count; qty.min='0'; qty.style.width='80px'; qty.setAttribute('aria-label','Skaits');
+      var qty = document.createElement('input'); qty.type='number'; qty.value=count; qty.min='0'; qty.setAttribute('aria-label','Skaits');
       var plus = document.createElement('button'); plus.textContent='+'; plus.className='btn-accent'; plus.title='Palielināt';
 
       minus.addEventListener('click', function(){ adjust(code, -1); });
@@ -202,7 +178,7 @@
       qtyWrap.appendChild(minus); qtyWrap.appendChild(qty); qtyWrap.appendChild(plus);
       tdQty.appendChild(qtyWrap);
 
-      var tdActions = document.createElement('td');
+      var tdActions = document.createElement('td'); tdActions.className='table-actions';
       var del = document.createElement('button'); del.textContent='Dzēst'; del.className='btn-danger';
       del.addEventListener('click', function(){ remove(code); });
       tdActions.appendChild(del);
@@ -249,43 +225,22 @@
     Object.keys(state.items).sort().forEach(function(c){ lines.push(c+','+state.items[c]); });
     return lines.join('\n');
   }
-  function asJson(){
-    return JSON.stringify({ items: state.items, exportedAt: new Date().toISOString() }, null, 2);
-  }
-
-  function download(filename, mime, text){
-    try{
-      var blob = new Blob([text], {type: mime});
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url; a.download = filename;
-      // iOS Safari often ignores download attribute; open a new tab as fallback
-      if(isIOS()){
-        // try open
-        var opened = window.open('data:' + mime + ';charset=utf-8,' + encodeURIComponent(text), '_blank');
-        if(!opened){ fallbackBox.style.display='block'; fallbackText.value=text; fallbackBox.scrollIntoView({behavior:'smooth'}); }
-      } else {
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      }
-      setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
-    }catch(e){ console.error(e); fallbackBox.style.display='block'; fallbackText.value=text; fallbackBox.scrollIntoView({behavior:'smooth'}); }
-  }
-
-  function copyToClipboard(text){
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      return navigator.clipboard.writeText(text).then(function(){ statusEl.textContent='Nokopēts'; setTimeout(function(){ statusEl.textContent='Saglabā lokāli'; },1200); });
-    } else {
-      // fallback
-      fallbackBox.style.display='block'; fallbackText.value=text; fallbackText.focus(); fallbackText.select();
-      try{ document.execCommand('copy'); }catch(_){}
+  function showFallback(csv, filename){
+    fallbackBox.style.display='block';
+    fallbackText.value=csv;
+    if(fallbackFilename){
+      fallbackFilename.textContent = 'Faila nosaukums: ' + filename;
+      fallbackFilename.style.display='block';
     }
+    fallbackBox.scrollIntoView({behavior:'smooth'});
   }
 
   async function shareCsv(){
     var csv = asCsv();
+    var filename = 'inventory-' + stamp() + '.csv';
     try{
       var blob = new Blob([csv], {type:'text/csv'});
-      var file = new File([blob], 'inventory.csv', {type:'text/csv'});
+      var file = new File([blob], filename, {type:'text/csv'});
       if(navigator.canShare && navigator.canShare({ files:[file] }) && navigator.share){
         await navigator.share({ files:[file], title:'Inventārs', text:'Inventāra CSV fails' });
         statusEl.textContent='Nosūtīts';
@@ -295,10 +250,10 @@
       // Fallback: open in new tab as data URL so user can use Share
       var url = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
       var w = window.open(url, '_blank');
-      if(!w){ fallbackBox.style.display='block'; fallbackText.value=csv; fallbackBox.scrollIntoView({behavior:'smooth'}); }
+      if(!w){ showFallback(csv, filename); }
     }catch(e){
       console.error(e);
-      fallbackBox.style.display='block'; fallbackText.value=csv; fallbackBox.scrollIntoView({behavior:'smooth'});
+      showFallback(csv, filename);
     }
   }
 
@@ -323,33 +278,17 @@
   codeEl.addEventListener('keydown', function(e){
     if(e.key==='Enter') { addBtn.click(); }
   });
-
-  exportCsvBtn.addEventListener('click', function(){
-    var csv = asCsv();
-    var stamp = new Date().toISOString().replace(/[-:T]/g,'').slice(0,12);
-    download('inventory-'+stamp+'.csv', 'text/csv', csv);
+  codeEl.addEventListener('input', function(){
+    var digits = (codeEl.value || '').replace(/\D/g,'');
+    if(digits.length === 8){
+      var code = normalizeCode(codeEl.value);
+      if(code){
+        add(code);
+        codeEl.value = '';
+        codeEl.focus();
+      }
+    }
   });
-  exportJsonBtn.addEventListener('click', function(){
-    var json = asJson();
-    var stamp = new Date().toISOString().replace(/[-:T]/g,'').slice(0,12);
-    download('inventory-'+stamp+'.json', 'application/json', json);
-  });
-  copyCsvBtn.addEventListener('click', function(){ copyToClipboard(asCsv()); });
-
-  openTableBtn.addEventListener('click', function(){
-    // Build table HTML inside the overlay (no window.open in PWA)
-    var rows = Object.keys(state.items).sort().map(function(c){
-      return '<tr><td class="code">'+c+'</td><td style="text-align:right">'+state.items[c]+'</td></tr>';
-    }).join('');
-    var total = Object.values(state.items).reduce(function(a,b){return a+b;},0);
-    tableBody.innerHTML = '<table><thead><tr><th>Kods</th><th>Skaits</th></tr></thead><tbody>'+rows+'</tbody></table>'+
-                          '<p style="margin-top:8px"><b>Kopā vienību:</b> '+total+'</p>';
-    tableOverlay.style.display = 'block';
-  });
-
-  closeTableBtn.addEventListener('click', function(){ tableOverlay.style.display='none'; });
-  copyTableCsvBtn.addEventListener('click', function(){ copyToClipboard(asCsv()); });
-  shareTableCsvBtn.addEventListener('click', function(){ shareCsv(); });
 
   shareCsvBtn.addEventListener('click', function(){
     shareCsv();
@@ -362,9 +301,6 @@
   // Init
   render();
   codeEl.focus();
-
-  // Best-effort: block iOS pinch-zoom in standalone
-  document.addEventListener('gesturestart', function(e){ e.preventDefault(); }, {passive:false});
 })();
 </script>
 </body>
