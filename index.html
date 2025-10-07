@@ -3,72 +3,58 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Ežu inventūra 2.1 (Photo OCR)</title>
+  <title>Inventūra</title>
   <!-- PWA basics -->
-  <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;Inventory Scanner&quot;,&quot;short_name&quot;:&quot;Scanner&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;#111&quot;,&quot;theme_color&quot;:&quot;#111&quot;}" />
+  <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;Inventory Counter&quot;,&quot;short_name&quot;:&quot;Inventūra&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;#111&quot;,&quot;theme_color&quot;:&quot;#111&quot;}">
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background:#0f1115; color:#e8e8e8; }
-    header { padding: 12px 16px; font-weight: 700; background:#151822; position: sticky; top:0; z-index: 10; }
-    main { padding: 12px 16px 120px; }
-    .card { background:#151822; border:1px solid #25293a; border-radius: 12px; padding: 12px; margin: 12px 0; }
-    .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
-    button, input { padding:10px 12px; border-radius:10px; border:1px solid #2b2f43; background:#1a1f2e; color:#e8e8e8; }
-    #ocrUrl { max-width: 100%; }
-    .videoWrap { position: relative; }
-    .videoWrap video { display:block; width:100%; border-radius:12px; background:#000; }
-    .roi { position:absolute; border:2px dashed #ffd27d; border-radius:10px; pointer-events:none; }
-    button:active { transform: scale(0.98); }
-    canvas { width:100%; border-radius:12px; background:#000; }
-    table { width:100%; border-collapse: collapse; margin-top: 8px; }
-    th, td { border-bottom:1px solid #2b2f43; padding:8px; text-align:left; }
-    .muted { opacity: .75; }
-    .pill { font-variant-numeric: tabular-nums; padding:4px 8px; border-radius:9999px; background:#1f2435; border:1px solid #2b2f43; }
-    .grid { display:grid; grid-template-columns: 1fr auto auto; gap:6px; align-items:center; }
-    .footer { position:fixed; bottom:0; left:0; right:0; background:#151822; border-top:1px solid #25293a; padding:8px 12px; display:flex; gap:8px; flex-wrap:wrap; }
-    .ok { color:#8cffb7 }
-    .warn { color:#ffd27d }
-    .err { color:#ff9aa2 }
-    /* Click feedback */
-    .pulse { animation: pulse 300ms ease-in-out; }
-    @keyframes pulse { 0%{transform:scale(1);} 50%{transform:scale(0.97);} 100%{transform:scale(1);} }
+    :root{
+      --bg:#0f1115; --card:#151822; --line:#25293a; --muted:#9aa3b2; --ink:#e8e8e8;
+      --btn-bg:#1a1f2e; --btn-bd:#2b2f43; --ok:#8cffb7; --warn:#ffd27d; --err:#ff9aa2;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+    header{padding:12px 16px;font-weight:700;background:var(--card);position:sticky;top:0;z-index:10;border-bottom:1px solid var(--line)}
+    main{padding:12px 16px 120px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:12px 0}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    button,input{padding:10px 12px;border-radius:10px;border:1px solid var(--btn-bd);background:var(--btn-bg);color:var(--ink)}
+    input{min-width:220px}
+    button:active{transform:scale(.98)}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{border-bottom:1px solid var(--line);padding:8px;text-align:left}
+    .muted{color:var(--muted)}
+    .pill{font-variant-numeric:tabular-nums;padding:4px 8px;border-radius:9999px;background:#1f2435;border:1px solid var(--btn-bd)}
+    .grid{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:center}
+    .footer{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);padding:8px 12px;display:flex;gap:8px;flex-wrap:wrap}
+    .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
+    .pulse{animation:pulse 300ms ease-in-out}
+    @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(.97)}100%{transform:scale(1)}}
   </style>
 </head>
 <body>
-<header>Ežu inventūra 2.1 — Photo OCR</header>
+<header>Inventūra</header>
 <main>
   <div class="card">
     <div class="row">
       <span id="status" class="muted">Idle</span>
       <button id="btnUpdate" title="Refresh cached files">Update</button>
-      <button id="btnStart" title="Start camera">Start Camera</button>
-      <label class="row"><input type="checkbox" id="autoScan" /> Auto-scan</label>
-      <button id="btnTorch" title="Toggle torch">Torch</button>
-      <button id="btnPhoto" title="Take/choose a photo for OCR">Photo mode</button>
-      <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none;" />
-      <input id="ocrUrl" placeholder="http://192.168.x.x:8080/ocr" style="min-width:260px;" />
-      <button id="btnSaveOCR" title="Save OCR server URL">Save OCR URL</button>
     </div>
-    <div class="videoWrap">
-      <video id="video" playsinline muted></video>
-      <div id="roiBox" class="roi"></div>
-    </div>
-    <canvas id="canvas" style="display:none;"></canvas>
-    <div class="muted" style="margin-top:6px;">Tip: aim so the orange tag fills most of the frame. High contrast helps.</div>
   </div>
 
   <div class="card">
     <div class="row">
       <b>Counts</b>
-      <button id="btnExport">Export CSV</button>
+      <button id="btnExport" title="Export CSV (code,count)">Export CSV</button>
       <button id="btnClear" title="Delete all">Clear All</button>
     </div>
-    <div class="row" style="margin-top:8px;">
-      <input id="manualCode" placeholder="Manual add: 8 digits" inputmode="numeric" maxlength="8" />
+    <div class="row" style="margin-top:8px;gap:6px">
+      <input id="manualCode" placeholder="Manual add: 8 digits" inputmode="numeric" maxlength="8" autocomplete="off" />
       <button id="btnAddManual">Add</button>
     </div>
-    <div id="countsWrap"></div>
+    <div id="countsWrap" style="margin-top:4px"></div>
   </div>
 </main>
 
@@ -78,400 +64,133 @@
   <span>Last: <span id="lastCode" class="pill muted">—</span></span>
 </div>
 
-<!-- libs (LOCAL copies for full offline) -->
+<!-- libs (LOCAL copy for full offline) -->
 <script src="./vendor/localforage/localforage.min.js"></script>
-
 <script>
-/* ---------- Storage (IndexedDB via localForage) ---------- */
-const store = localforage.createInstance({ name: 'inventory', storeName: 'codes' });
+  // -------- Storage (IndexedDB via localForage) --------
+  const store = localforage.createInstance({ name:'inventory', storeName:'codes' });
+  const getAll = async()=> (await store.getItem('data')) || {};
+  const setAll = async(d)=> store.setItem('data', d);
+  const inc = async(code)=>{ const d=await getAll(); d[code]=(d[code]||0)+1; await setAll(d); return d[code]; };
+  const setCount = async(code,val)=>{ const d=await getAll(); if(val<=0) delete d[code]; else d[code]=val; await setAll(d); };
+  const clearAll = async()=> setAll({});
 
-async function getAll()  { return (await store.getItem('data')) || {}; }
-async function setAll(d)  { return store.setItem('data', d); }
-async function inc(code) {
-  const data = await getAll();
-  data[code] = (data[code] || 0) + 1;
-  await setAll(data);
-  return data[code];
-}
-async function setCount(code, val) {
-  const data = await getAll();
-  if (val <= 0) delete data[code]; else data[code] = val;
-  await setAll(data);
-}
-async function clearAll() { await setAll({}); }
+  // -------- UI refs --------
+  const els = {
+    status: document.getElementById('status'),
+    countsWrap: document.getElementById('countsWrap'),
+    scanTotal: document.getElementById('scanTotal'),
+    uniqueTotal: document.getElementById('uniqueTotal'),
+    lastCode: document.getElementById('lastCode'),
+    btnExport: document.getElementById('btnExport'),
+    btnClear: document.getElementById('btnClear'),
+    manualCode: document.getElementById('manualCode'),
+    btnAddManual: document.getElementById('btnAddManual'),
+    btnUpdate: document.getElementById('btnUpdate')
+  };
 
-/* ---------- UI helpers ---------- */
-const els = {
-  canvas: document.getElementById('canvas'),
-  status: document.getElementById('status'),
-  countsWrap: document.getElementById('countsWrap'),
-  scanTotal: document.getElementById('scanTotal'),
-  uniqueTotal: document.getElementById('uniqueTotal'),
-  lastCode: document.getElementById('lastCode'),
-  btnExport: document.getElementById('btnExport'),
-  btnClear: document.getElementById('btnClear'),
-  manualCode: document.getElementById('manualCode'),
-  btnAddManual: document.getElementById('btnAddManual'),
-  btnUpdate: document.getElementById('btnUpdate'),
-  btnPhoto: document.getElementById('btnPhoto'),
-  fileInput: document.getElementById('fileInput'),
-  btnStart: document.getElementById('btnStart'),
-  autoScan: document.getElementById('autoScan'),
-  btnTorch: document.getElementById('btnTorch'),
-  video: document.getElementById('video'),
-  roiBox: document.getElementById('roiBox'),
-  ocrUrl: document.getElementById('ocrUrl'),
-  btnSaveOCR: document.getElementById('btnSaveOCR'),
-};
+  // -------- Helpers --------
+  const setStatus = (msg, cls='muted')=>{ els.status.className=cls; els.status.textContent=msg; };
+  const flashButton = (el)=>{ if(!el) return; el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); };
+  const beep = (ok=true)=>{ try{ const ctx=new (window.AudioContext||window.webkitAudioContext)(); const o=ctx.createOscillator(); const g=ctx.createGain(); o.type= ok?'triangle':'sawtooth'; o.frequency.value= ok?880:220; o.connect(g); g.connect(ctx.destination); g.gain.value=0.02; o.start(); setTimeout(()=>{o.stop(); ctx.close()}, 120);}catch(e){} };
+  const onlyDigits = (s)=> s.replace(/\D+/g,'');
 
-function setStatus(msg, cls='muted') {
-  els.status.className = cls;
-  els.status.textContent = msg;
-}
+  const totalCount = (obj)=> Object.values(obj).reduce((a,b)=>a+Number(b||0),0);
 
-function flashButton(el){
-  if (!el) return;
-  el.classList.remove('pulse');
-  // force reflow to restart animation
-  void el.offsetWidth;
-  el.classList.add('pulse');
-}
+  // -------- Render table --------
+  async function refresh() {
+    const data = await getAll();
+    const entries = Object.entries(data).sort((a,b)=>a[0].localeCompare(b[0]));
+    els.uniqueTotal.textContent = entries.length;
+    els.scanTotal.textContent = totalCount(data);
 
-function loadOCRUrl(){
-  const s = localStorage.getItem('ocrServerUrl');
-  if (s && els.ocrUrl) els.ocrUrl.value = s;
-}
-function saveOCRUrl(){
-  if (!els.ocrUrl) return;
-  const v = els.ocrUrl.value.trim();
-  if (!/^https?:\/\//.test(v)) { setStatus('Invalid OCR URL (must start with http:// or https://)', 'warn'); return; }
-  localStorage.setItem('ocrServerUrl', v);
-  setStatus('Saved OCR URL', 'ok');
-}
-
-function getROI(w,h){
-  const x = Math.round(w * 0.10);
-  const y = Math.round(h * 0.10);
-  const rw = Math.round(w * 0.80);
-  const rh = Math.round(h * 0.35);
-  return {x,y,rw,rh};
-}
-
-function beep(ok=true){
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const o = ctx.createOscillator(); const g = ctx.createGain();
-    o.type = ok ? 'triangle' : 'sawtooth';
-    o.frequency.value = ok ? 880 : 220;
-    o.connect(g); g.connect(ctx.destination); g.gain.value = 0.02;
-    o.start(); setTimeout(()=>{o.stop(); ctx.close()}, 120);
-  } catch(e) {}
-}
-
-/* ---------- Camera + ROI + Autoscan ---------- */
-let stream = null; let interval = null; let uploading = false; let lastCodeAt = 0; let lastCodeVal = '';
-
-function updateROIOverlay(){
-  const v = els.video; if (!v) return;
-  const w = v.clientWidth, h = v.clientHeight;
-  const rx = 0.10 * w, ry = 0.10 * h, rw = 0.80 * w, rh = 0.35 * h;
-  if (els.roiBox){
-    els.roiBox.style.left = rx + 'px';
-    els.roiBox.style.top = ry + 'px';
-    els.roiBox.style.width = rw + 'px';
-    els.roiBox.style.height = rh + 'px';
+    els.countsWrap.innerHTML = entries.length
+      ? `<table><thead><tr><th>Code</th><th>Count</th><th></th></tr></thead><tbody>
+           ${entries.map(([code,cnt])=>`
+             <tr>
+               <td><code>${code}</code></td>
+               <td class="grid">
+                 <span>${cnt}</span>
+                 <button data-dec="${code}" title="-1">−</button>
+                 <button data-inc="${code}" title="+1">+</button>
+               </td>
+               <td><button data-del="${code}" title="Delete">Delete</button></td>
+             </tr>`).join('')}
+         </tbody></table>`
+      : `<div class="muted">No entries yet.</div>`;
   }
-}
 
-async function startCamera(){
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ setStatus('Camera not supported', 'err'); return; }
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
-    });
-    els.video.srcObject = stream; await els.video.play();
-    setStatus('Camera ready', 'ok');
-    updateROIOverlay();
-    // Try to expose torch capability
-    const track = stream.getVideoTracks()[0];
-    const caps = track.getCapabilities ? track.getCapabilities() : {};
-    els.btnTorch.style.display = (caps && 'torch' in caps) ? 'inline-block' : 'none';
-  } catch(e){ setStatus('Camera error: ' + e.message, 'err'); }
-}
-
-function drawAndDownscaleFromVideo(maxSide=1200){
-  const v = els.video; if (!v || !v.videoWidth) return null;
-  const scale = Math.min(1, maxSide / Math.max(v.videoWidth, v.videoHeight));
-  const bw = Math.round(v.videoWidth*scale), bh = Math.round(v.videoHeight*scale);
-  const base = document.createElement('canvas'); base.width=bw; base.height=bh;
-  base.getContext('2d').drawImage(v, 0, 0, bw, bh);
-  const {x,y,rw,rh} = getROI(bw,bh);
-  const c = els.canvas; c.width = rw; c.height = rh;
-  c.getContext('2d').drawImage(base, x,y,rw,rh, 0,0,rw,rh);
-  return c;
-}
-
-async function toggleTorch(){
-  try{
-    if (!stream) return;
-    const track = stream.getVideoTracks()[0];
-    const caps = track.getCapabilities ? track.getCapabilities() : {};
-    if (!('torch' in caps)) { setStatus('Torch not supported on this device', 'warn'); return; }
-    const settings = track.getSettings ? track.getSettings() : {};
-    const on = !settings.torch;
-    await track.applyConstraints({ advanced: [{ torch: on }] });
-    setStatus('Torch ' + (on? 'ON' : 'OFF'));
-  }catch(e){ setStatus('Torch toggle failed', 'err'); }
-}
-
-async function refreshTable() {
-  const data = await getAll();
-  const entries = Object.entries(data).sort((a,b)=>a[0].localeCompare(b[0]));
-  els.uniqueTotal.textContent = entries.length;
-  els.countsWrap.innerHTML = entries.length
-    ? `<table><thead><tr><th>Code</th><th>Count</th><th></th></tr></thead><tbody>
-       ${entries.map(([code, cnt]) => `
-         <tr>
-           <td><code>${code}</code></td>
-           <td class="grid">
-             <span>${cnt}</span>
-             <button data-dec="${code}">−</button>
-             <button data-inc="${code}">+</button>
-           </td>
-           <td><button data-del="${code}">Delete</button></td>
-         </tr>`).join('')}
-       </tbody></table>`
-    : `<div class="muted">No scans yet.</div>`;
-}
-
-els.countsWrap.addEventListener('click', async (e)=>{
-  const t = e.target;
-  if (t.dataset.inc){ const c=t.dataset.inc; await setCount(c,( (await getAll())[c]||0 )+1); refreshTable(); }
-  if (t.dataset.dec){ const c=t.dataset.dec; await setCount(c,( (await getAll())[c]||0 )-1); refreshTable(); }
-  if (t.dataset.del){ const c=t.dataset.del; await setCount(c,0); refreshTable(); }
-});
-
-
-// Draw image file to canvas and crop ROI (for Photo mode)
-async function drawFileToCanvas(file){
-  return new Promise((resolve, reject)=>{
-    const img = new Image();
-    img.onload = ()=>{
-      const c = els.canvas; const ctx = c.getContext('2d');
-      const w = img.naturalWidth, h = img.naturalHeight;
-      // Crop the ROI (top band)
-      const roi = getROI(w,h);
-      c.width = roi.rw; c.height = roi.rh;
-      ctx.drawImage(img, roi.x, roi.y, roi.rw, roi.rh, 0, 0, roi.rw, roi.rh);
-      resolve(c);
-    };
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
+  els.countsWrap.addEventListener('click', async (e)=>{
+    const t = e.target; if(!(t instanceof HTMLElement)) return;
+    if (t.dataset.inc){ const c=t.dataset.inc; await setCount(c, ((await getAll())[c]||0)+1); refresh(); }
+    if (t.dataset.dec){ const c=t.dataset.dec; await setCount(c, ((await getAll())[c]||0)-1); refresh(); }
+    if (t.dataset.del){ const c=t.dataset.del; await setCount(c, 0); refresh(); }
   });
-}
 
+  // -------- Events --------
+  els.manualCode.addEventListener('input',()=>{ els.manualCode.value = onlyDigits(els.manualCode.value).slice(0,8); });
+  els.manualCode.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ els.btnAddManual.click(); } });
 
-// Local OCR via OCR Server (server-only)
-async function cloudOCRFromCanvas(canvas){
-  setStatus('Sending to OCR Server…');
-  const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.6));
-  const url = (localStorage.getItem('ocrServerUrl') || (els.ocrUrl && els.ocrUrl.value) || '').trim();
-  if (!url) throw new Error('Set OCR URL first');
-  const resp = await fetch(url, { method:'POST', headers:{ 'Content-Type':'image/jpeg' }, body: blob });
-  if (!resp.ok) throw new Error('OCR Server not reachable');
-  const text = await resp.text();
-  return text || '';
-}
-
-
-async function scanOnce() {
-  if (els.fileInput) els.fileInput.click();
-}
-
-function startAutoScan(){
-  if (interval) return;
-  interval = setInterval(async ()=>{
-    if (uploading) return; // avoid parallel uploads
-    const c = drawAndDownscaleFromVideo(1200);
-    if (!c) return;
-    try{
-      uploading = true; setStatus('Auto-scan…');
-      const text = await cloudOCRFromCanvas(c);
-      const joined = (text||'').replace(/\s+/g,'');
-      const m = joined.match(/\d{8}/);
-      if (m){
-        const code = m[0];
-        const now = Date.now();
-        if (code === lastCodeVal && (now - lastCodeAt) < 1500){ /* duplicate within 1.5s, ignore */ }
-        else {
-          await inc(code);
-          els.lastCode.textContent = code; els.lastCode.classList.remove('muted');
-          els.scanTotal.textContent = String(parseInt(els.scanTotal.textContent||'0',10)+1);
-          setStatus('Captured ' + code, 'ok');
-          refreshTable();
-          beep(true);
-          lastCodeVal = code; lastCodeAt = now;
-        }
-      }
-    }catch(e){ /* ignore transient OCR failures */ }
-    finally { uploading = false; }
-  }, 1500);
-}
-
-function stopAutoScan(){ if (interval) { clearInterval(interval); interval=null; } }
-
-/* ---------- Events ---------- */
-if (els.btnStart) els.btnStart.onclick = () => { flashButton(els.btnStart); startCamera(); };
-if (els.btnTorch) els.btnTorch.onclick = () => { flashButton(els.btnTorch); toggleTorch(); };
-if (els.autoScan) els.autoScan.onchange = ()=>{ if (els.autoScan.checked) startAutoScan(); else stopAutoScan(); };
-if (els.video) els.video.addEventListener('loadedmetadata', updateROIOverlay);
-window.addEventListener('resize', updateROIOverlay);
-if (els.btnSaveOCR) els.btnSaveOCR.onclick = () => { flashButton(els.btnSaveOCR); saveOCRUrl(); };
-loadOCRUrl();
-if (els.btnUpdate) els.btnUpdate.onclick = async () => {
-  flashButton(els.btnUpdate);
-  try {
-    if ('serviceWorker' in navigator) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      for (const r of regs) await r.unregister();
-    }
-    const keys = await caches.keys();
-    for (const k of keys) await caches.delete(k);
-  } catch(e) { console.warn(e); }
-  location.reload();
-};
-
-if (els.btnExport) els.btnExport.onclick = async () => {
-  flashButton(els.btnExport);
-  setStatus('Exporting CSV…');
-  const data = await getAll();
-  const rows = Object.entries(data).map(([k,v])=>`${k},${v}`).join('\n');
-  const blob = new Blob([rows], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'inventory_counts.csv';
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-};
-
-if (els.btnClear) els.btnClear.onclick = async () => {
-  flashButton(els.btnClear);
-  if (!confirm('Delete all counts?')) return;
-  await clearAll(); els.scanTotal.textContent='0'; els.lastCode.textContent='—'; els.lastCode.classList.add('muted'); refreshTable();
-};
-
-if (els.btnAddManual) els.btnAddManual.onclick = async () => {
-  flashButton(els.btnAddManual);
-  const v = (els.manualCode.value||'').trim();
-  if (!/^\d{8}$/.test(v)) { setStatus('Enter exactly 8 digits', 'warn'); return; }
-  await inc(v);
-  els.manualCode.value='';
-  await refreshTable();
-  els.lastCode.textContent=v;
-  els.lastCode.classList.remove('muted');
-  beep(true);
-  setStatus('Added ' + v, 'ok');
-};
-
-if (els.btnPhoto && els.fileInput) {
-  els.btnPhoto.onclick = ()=>{ 
-    flashButton(els.btnPhoto);
-    setStatus('Photo mode: choose or take a photo'); 
-    els.fileInput.click(); 
+  els.btnAddManual.onclick = async () => {
+    flashButton(els.btnAddManual);
+    const v = (els.manualCode.value||'').trim();
+    if (!/^\d{8}$/.test(v)) { setStatus('Enter exactly 8 digits', 'warn'); beep(false); return; }
+    await inc(v);
+    els.manualCode.value='';
+    els.lastCode.textContent=v; els.lastCode.classList.remove('muted');
+    setStatus('Added '+v, 'ok'); beep(true);
+    refresh();
   };
-  els.fileInput.onchange = async (e)=>{
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    try{
-      els.btnPhoto.disabled = true;
-      setStatus('Preparing image…');
-      const c = await drawFileToCanvas(file);
-      setStatus('Sending to OCR Server…');
-      const text = await cloudOCRFromCanvas(c);
-      const joined = (text||'').replace(/\s+/g,'');
-      const m = joined.match(/\d{8}/);
-      if (m){
-        const code = m[0];
-        await inc(code);
-        els.lastCode.textContent = code; els.lastCode.classList.remove('muted');
-        els.scanTotal.textContent = String(parseInt(els.scanTotal.textContent||'0',10)+1);
-        setStatus('Captured ' + code, 'ok');
-        refreshTable();
-        beep(true);
-      } else {
-        setStatus('No 8-digit code found. Try a closer/clearer photo.', 'warn');
-        beep(false);
-      }
-    }catch(err){
-      console.error(err);
-      setStatus('Photo OCR failed: ' + (err.message||err), 'err');
-    } finally {
-      els.btnPhoto.disabled = false;
-      e.target.value = '';
-    }
+
+  els.btnExport.onclick = async () => {
+    flashButton(els.btnExport);
+    const data = await getAll();
+    const rows = Object.entries(data).map(([k,v])=>`${k},${v}`).join('\n');
+    const blob = new Blob([rows], { type:'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='inventory_counts.csv';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    setStatus('CSV exported', 'ok');
   };
-}
 
-// Drag & drop
-window.addEventListener('dragover', e=>{ e.preventDefault(); });
-window.addEventListener('drop', async e=>{
-  e.preventDefault();
-  if (!els.fileInput) return;
-  const file = e.dataTransfer?.files?.[0];
-  if (!file) return;
-  els.fileInput.files = e.dataTransfer.files;
-  els.fileInput.onchange({ target: els.fileInput });
-});
+  els.btnClear.onclick = async () => {
+    flashButton(els.btnClear);
+    if (!confirm('Delete all counts?')) return;
+    await clearAll();
+    els.lastCode.textContent='—'; els.lastCode.classList.add('muted');
+    setStatus('All data cleared', 'ok');
+    refresh();
+  };
 
-// Clipboard paste
-window.addEventListener('paste', async e=>{
-  if (!els.fileInput) return;
-  const item = [...(e.clipboardData?.items||[])].find(i=> i.type.startsWith('image/'));
-  if (!item) return;
-  const file = item.getAsFile();
-  const dt = new DataTransfer(); dt.items.add(file); els.fileInput.files = dt.files;
-  els.fileInput.onchange({ target: els.fileInput });
-});
-
-// quick diagnostics in console
-  (async ()=>{
-    try{
-      const urls = [ './vendor/localforage/localforage.min.js' ];
-      for (const u of urls){
-        try { await fetch(u, { method:'HEAD' }); console.debug('[OK]', u); }
-        catch(e){ console.error('[MISSING]', u, e); }
+  els.btnUpdate.onclick = async () => {
+    flashButton(els.btnUpdate);
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const r of regs) await r.unregister();
       }
-    }catch(e){/* ignore */}
-  })();
+      const keys = await caches.keys();
+      for (const k of keys) await caches.delete(k);
+    } catch(e) { console.warn(e); }
+    location.reload();
+  };
 
-window.addEventListener('load', refreshTable);
+  // -------- Service Worker (cache-first) --------
+  if ('serviceWorker' in navigator) {
+    const swCode = `
+      const CACHE='inv-v1';
+      const FILES=['./','./index.html','./vendor/localforage/localforage.min.js'];
+      self.addEventListener('install',e=>{ e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES))); self.skipWaiting(); });
+      self.addEventListener('activate',e=>{ e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))); self.clients.claim(); });
+      self.addEventListener('fetch',e=>{ e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))); });
+    `;
+    const swUrl = URL.createObjectURL(new Blob([swCode],{type:'text/javascript'}));
+    navigator.serviceWorker.register(swUrl);
+  }
 
-/* ---------- Offline cache (FULLY OFFLINE) ---------- */
-if ('serviceWorker' in navigator) {
-  const sw = URL.createObjectURL(new Blob([`
-    const CACHE = 'inv-v6';
-    const FILES = [ './', './index.html', './vendor/localforage/localforage.min.js' ];
-
-    self.addEventListener('install', e => {
-      e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
-      self.skipWaiting();
-    });
-
-    self.addEventListener('activate', e => {
-      e.waitUntil(
-        caches.keys().then(keys => Promise.all(
-          keys.filter(k => k !== CACHE).map(k => caches.delete(k))
-        ))
-      );
-      self.clients.claim();
-    });
-
-    // Cache-first
-    self.addEventListener('fetch', e => {
-      e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
-    });
-  `], { type: 'text/javascript' }));
-  navigator.serviceWorker.register(sw);
-}
+  // -------- Init --------
+  refresh();
+  setStatus('Ready');
 </script>
 </body>
 </html>
