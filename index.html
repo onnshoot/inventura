@@ -23,7 +23,9 @@
     .btn-accent{background:var(--accent);border-color:var(--accent);color:white}
     .btn-danger{background:transparent;border-color:var(--danger);color:var(--danger)}
     .muted{color:var(--muted)}
-    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .toolbar{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+    .toolbar-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    #multiplier{width:80px}
 
     table{width:100%;border-collapse:separate;border-spacing:0 8px;margin-top:12px;table-layout:fixed}
     thead th{font-weight:600;color:var(--muted);text-align:left;padding:6px 10px}
@@ -75,9 +77,12 @@
         <input id="code" type="text" inputmode="numeric" pattern="\\d{8}" placeholder="00000000" autocomplete="one-time-code" aria-label="8 ciparu kods" />
       </form>
       <div class="toolbar">
-        <button id="clearBtn" class="btn-danger">Notīrīt visu</button>
-        <button id="shareCsvBtn" class="btn-accent">Kopīgot CSV (tālrunī)</button>
-        <span class="muted">Dati tiek glabāti šajā pārlūkā (localStorage).</span>
+        <div class="toolbar-row">
+          <button id="clearBtn" class="btn-danger">Notīrīt visu</button>
+          <button id="shareCsvBtn" class="btn-accent">Kopīgot CSV (tālrunī)</button>
+          <input id="multiplier" type="number" min="1" value="1" inputmode="numeric" aria-label="Reizināt skaitu" title="Reizināt ievadītā koda skaitu" />
+        </div>
+        <span id="lastCodeDisplay" class="muted">Pēdējais ievadītais kods: —</span>
       </div>
 
       <div id="fallbackBox" class="card">
@@ -107,7 +112,10 @@
 (function(){
   'use strict';
   var KEY = 'ezu-inventura-v1';
-  var state = load() || { items: {} }; // { code: count }
+  var state = load() || { items: {}, lastEntry: null };
+  if(!state.items) state.items = {};
+  if(typeof state.lastEntry === 'undefined') state.lastEntry = null;
+  if(typeof state.savedAt === 'undefined') state.savedAt = null;
   var codeEl = document.getElementById('code');
   var tbody = document.getElementById('tbody');
   var totalEl = document.getElementById('total');
@@ -115,6 +123,8 @@
   var statusEl = document.getElementById('status');
   var shareCsvBtn = document.getElementById('shareCsvBtn');
   var clearBtn = document.getElementById('clearBtn');
+  var multiplierEl = document.getElementById('multiplier');
+  var lastCodeEl = document.getElementById('lastCodeDisplay');
   var fallbackBox = document.getElementById('fallbackBox');
   var fallbackFilename = document.getElementById('fallbackFilename');
   var fallbackText = document.getElementById('fallbackText');
@@ -134,7 +144,9 @@
 
   function save(){
     try {
-      localStorage.setItem(KEY, JSON.stringify({items: state.items, savedAt: Date.now()}));
+      var ts = Date.now();
+      state.savedAt = ts;
+      localStorage.setItem(KEY, JSON.stringify({items: state.items, savedAt: ts, lastEntry: state.lastEntry}));
       statusEl.textContent = 'Saglabāts';
       savedAtEl.textContent = nowStr();
       setTimeout(function(){ statusEl.textContent = 'Saglabā lokāli'; }, 1200);
@@ -161,21 +173,24 @@
       var qtyWrap = document.createElement('div'); qtyWrap.className='qty';
       var minus = document.createElement('button'); minus.textContent='−'; minus.title='Samazināt';
       var qty = document.createElement('input'); qty.type='number'; qty.value=count; qty.min='0'; qty.setAttribute('aria-label','Skaits');
-      var plus = document.createElement('button'); plus.textContent='+'; plus.className='btn-accent'; plus.title='Palielināt';
 
-      minus.addEventListener('click', function(){ adjust(code, -1); });
-      plus.addEventListener('click', function(){ adjust(code, +1); });
+      minus.addEventListener('click', function(){
+        var currentCount = state.items[code] || 0;
+        if(currentCount <= 0) return;
+        var message = 'Vai tiešām samazināt "' + code + '" skaitu par 1?';
+        if(confirm(message)){ adjust(code, -1); }
+      });
       qty.addEventListener('change', function(){ setCount(code, parseInt(qty.value||'0',10)); });
 
-      qtyWrap.appendChild(minus); qtyWrap.appendChild(qty); qtyWrap.appendChild(plus);
+      qtyWrap.appendChild(minus); qtyWrap.appendChild(qty);
       tdQty.appendChild(qtyWrap);
 
       tr.appendChild(tdCode); tr.appendChild(tdQty);
       tbody.appendChild(tr);
     });
     totalEl.textContent = total;
-    var loaded = load();
-    if(loaded && loaded.savedAt){ savedAtEl.textContent = new Date(loaded.savedAt).toLocaleString(); }
+    updateLastCodeDisplay();
+    if(state.savedAt){ savedAtEl.textContent = new Date(state.savedAt).toLocaleString(); }
   }
 
   function normalizeCode(input){
@@ -184,9 +199,31 @@
     return null;
   }
 
-  function add(code){
+  function getMultiplier(){
+    if(!multiplierEl) return 1;
+    var raw = parseInt(multiplierEl.value, 10);
+    var multiplier = raw > 0 ? raw : 1;
+    if(raw !== multiplier){ multiplierEl.value = String(multiplier); }
+    return multiplier;
+  }
+
+  function updateLastCodeDisplay(){
+    if(!lastCodeEl) return;
+    if(state.lastEntry && state.lastEntry.code){
+      var text = state.lastEntry.code;
+      var amount = state.lastEntry.amount || 0;
+      if(amount > 1){ text += ' ×' + amount; }
+      lastCodeEl.textContent = 'Pēdējais ievadītais kods: ' + text;
+    } else {
+      lastCodeEl.textContent = 'Pēdējais ievadītais kods: —';
+    }
+  }
+
+  function add(code, amount){
+    var inc = (typeof amount === 'number' && amount > 0) ? Math.floor(amount) : 1;
     if(!state.items[code]) state.items[code]=0;
-    state.items[code] += 1;
+    state.items[code] += inc;
+    state.lastEntry = { code: code, amount: inc };
     save(); render();
   }
 
@@ -245,7 +282,8 @@
     e.preventDefault();
     var code = normalizeCode(codeEl.value);
     if(!code){ codeEl.focus(); codeEl.select(); return; }
-    add(code);
+    var amount = getMultiplier();
+    add(code, amount);
     codeEl.value='';
     codeEl.focus();
   });
@@ -255,7 +293,8 @@
     if(digits.length === 8){
       var code = normalizeCode(codeEl.value);
       if(code){
-        add(code);
+        var amount = getMultiplier();
+        add(code, amount);
         codeEl.value = '';
         codeEl.focus();
       }
@@ -265,12 +304,23 @@
     codeEl.value = '';
   });
 
+  if(multiplierEl){
+    multiplierEl.addEventListener('change', function(){
+      getMultiplier();
+    });
+  }
+
   shareCsvBtn.addEventListener('click', function(){
     shareCsv();
   });
 
   clearBtn.addEventListener('click', function(){
-    if(confirm('Vai tiešām dzēst visu?')){ state.items = {}; save(); render(); }
+    if(confirm('Vai tiešām dzēst visu?')){
+      state.items = {};
+      state.lastEntry = null;
+      save();
+      render();
+    }
   });
 
   // Init
