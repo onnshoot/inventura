@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Ežu inventūra 2.0 (Photo OCR)</title>
+  <title>Ežu inventūra 2.1 (Photo OCR)</title>
   <!-- PWA basics -->
   <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;Inventory Scanner&quot;,&quot;short_name&quot;:&quot;Scanner&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;#111&quot;,&quot;theme_color&quot;:&quot;#111&quot;}" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -15,6 +15,7 @@
     .card { background:#151822; border:1px solid #25293a; border-radius: 12px; padding: 12px; margin: 12px 0; }
     .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
     button, input { padding:10px 12px; border-radius:10px; border:1px solid #2b2f43; background:#1a1f2e; color:#e8e8e8; }
+    #ocrUrl { max-width: 100%; }
     .videoWrap { position: relative; }
     .videoWrap video { display:block; width:100%; border-radius:12px; background:#000; }
     .roi { position:absolute; border:2px dashed #ffd27d; border-radius:10px; pointer-events:none; }
@@ -35,7 +36,7 @@
   </style>
 </head>
 <body>
-<header>Ežu inventūra 2.0 — Photo OCR</header>
+<header>Ežu inventūra 2.1 — Photo OCR</header>
 <main>
   <div class="card">
     <div class="row">
@@ -46,6 +47,8 @@
       <button id="btnTorch" title="Toggle torch">Torch</button>
       <button id="btnPhoto" title="Take/choose a photo for OCR">Photo mode</button>
       <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none;" />
+      <input id="ocrUrl" placeholder="http://192.168.x.x:8080/ocr" style="min-width:260px;" />
+      <button id="btnSaveOCR" title="Save OCR server URL">Save OCR URL</button>
     </div>
     <div class="videoWrap">
       <video id="video" playsinline muted></video>
@@ -117,6 +120,8 @@ const els = {
   btnTorch: document.getElementById('btnTorch'),
   video: document.getElementById('video'),
   roiBox: document.getElementById('roiBox'),
+  ocrUrl: document.getElementById('ocrUrl'),
+  btnSaveOCR: document.getElementById('btnSaveOCR'),
 };
 
 function setStatus(msg, cls='muted') {
@@ -130,6 +135,18 @@ function flashButton(el){
   // force reflow to restart animation
   void el.offsetWidth;
   el.classList.add('pulse');
+}
+
+function loadOCRUrl(){
+  const s = localStorage.getItem('ocrServerUrl');
+  if (s && els.ocrUrl) els.ocrUrl.value = s;
+}
+function saveOCRUrl(){
+  if (!els.ocrUrl) return;
+  const v = els.ocrUrl.value.trim();
+  if (!/^https?:\/\//.test(v)) { setStatus('Invalid OCR URL (must start with http:// or https://)', 'warn'); return; }
+  localStorage.setItem('ocrServerUrl', v);
+  setStatus('Saved OCR URL', 'ok');
 }
 
 function getROI(w,h){
@@ -251,80 +268,19 @@ async function drawFileToCanvas(file){
   });
 }
 
-function toGray(ctx, w, h){
-  const img = ctx.getImageData(0,0,w,h); const d = img.data;
-  for (let i=0;i<d.length;i+=4){ const g = 0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; d[i]=d[i+1]=d[i+2]=g; }
-  ctx.putImageData(img,0,0);
-}
-function adjustContrast(ctx, w, h, amount=1.2){
-  const img = ctx.getImageData(0,0,w,h); const d = img.data;
-  for (let i=0;i<d.length;i+=4){ for (let k=0;k<3;k++){ const v=d[i+k]; d[i+k] = Math.max(0, Math.min(255, (v-128)*amount + 128)); }}
-  ctx.putImageData(img,0,0);
-}
-function threshold(ctx, w, h, t=128){
-  const img = ctx.getImageData(0,0,w,h); const d = img.data;
-  for (let i=0;i<d.length;i+=4){ const g=d[i]; const v=g>t?255:0; d[i]=d[i+1]=d[i+2]=v; }
-  ctx.putImageData(img,0,0);
-}
-function cloneCanvas(src){ const c=document.createElement('canvas'); c.width=src.width; c.height=src.height; c.getContext('2d').drawImage(src,0,0); return c; }
 
-async function runOcrPipeline(baseCanvas){
-  const stages = [];
-  // 1) original
-  stages.push(cloneCanvas(baseCanvas));
-  // 2) gray + contrast
-  let c2 = cloneCanvas(baseCanvas); let g2=c2.getContext('2d'); toGray(g2,c2.width,c2.height); adjustContrast(g2,c2.width,c2.height,1.25); stages.push(c2);
-  // 3) gray + hard threshold 140
-  let c3 = cloneCanvas(baseCanvas); let g3=c3.getContext('2d'); toGray(g3,c3.width,c3.height); threshold(g3,c3.width,c3.height,140); stages.push(c3);
-  // 4) gray + threshold 100
-  let c4 = cloneCanvas(baseCanvas); let g4=c4.getContext('2d'); toGray(g4,c4.width,c4.height); threshold(g4,c4.width,c4.height,100); stages.push(c4);
-
-  for (const c of stages){
-    try{
-      const text = await cloudOCRFromCanvas(c);
-      const joined = (text||'').replace(/\s+/g,'');
-      const m = joined.match(/\d{8}/);
-      if (m) return m[0];
-    }catch(e){ console.warn('OCR stage failed', e); }
-  }
-  return null;
-}
-
-// Cloud OCR via OCR.space API (Photo mode)
+// Local OCR via OCR Server (server-only)
 async function cloudOCRFromCanvas(canvas){
-  setStatus('Uploading to OCR API…');
-  // Use JPEG at lower quality for speed
+  setStatus('Sending to OCR Server…');
   const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.6));
-  const fd = new FormData();
-  fd.append('file', blob, 'scan.jpg');
-  fd.append('language', 'eng');
-  fd.append('scale', 'true');
-  fd.append('OCREngine', '2');
-  fd.append('isOverlayRequired', 'false');
-  // NOTE: For personal use you can keep the demo key; better: get your own free key at ocr.space and replace below
-  const API_KEY = 'helloworld';
-  const resp = await fetch('https://api.ocr.space/parse/image', { method:'POST', headers:{ 'apikey': API_KEY }, body: fd });
-  const json = await resp.json();
-  if (!json || json.IsErroredOnProcessing) {
-    throw new Error(json?.ErrorMessage || 'OCR API error');
-  }
-  const text = (json.ParsedResults && json.ParsedResults[0] && json.ParsedResults[0].ParsedText) || '';
-  return text;
+  const url = (localStorage.getItem('ocrServerUrl') || (els.ocrUrl && els.ocrUrl.value) || '').trim();
+  if (!url) throw new Error('Set OCR URL first');
+  const resp = await fetch(url, { method:'POST', headers:{ 'Content-Type':'image/jpeg' }, body: blob });
+  if (!resp.ok) throw new Error('OCR Server not reachable');
+  const text = await resp.text();
+  return text || '';
 }
 
-function pickEightDigits(text, words=[]) {
-  // Prefer exact 8-digit tokens from OCR words with decent confidence if available
-  const wordCandidate = (words||[])
-    .filter(w => /^\d{8}$/.test(w.text || ''))
-    .sort((a,b)=> (b.confidence||0) - (a.confidence||0) )[0];
-  if (wordCandidate) return { code: wordCandidate.text, conf: wordCandidate.confidence||0.8 };
-
-  // Fallback: regex over full text (strip spaces/newlines)
-  const joined = (text||'').replace(/\s+/g,'');
-  const m = joined.match(/\d{8}/);
-  if (m) return { code: m[0], conf: 0.6 };
-  return null;
-}
 
 async function scanOnce() {
   if (els.fileInput) els.fileInput.click();
@@ -338,8 +294,11 @@ function startAutoScan(){
     if (!c) return;
     try{
       uploading = true; setStatus('Auto-scan…');
-      const code = await runOcrPipeline(c);
-      if (code){
+      const text = await cloudOCRFromCanvas(c);
+      const joined = (text||'').replace(/\s+/g,'');
+      const m = joined.match(/\d{8}/);
+      if (m){
+        const code = m[0];
         const now = Date.now();
         if (code === lastCodeVal && (now - lastCodeAt) < 1500){ /* duplicate within 1.5s, ignore */ }
         else {
@@ -365,6 +324,8 @@ if (els.btnTorch) els.btnTorch.onclick = () => { flashButton(els.btnTorch); togg
 if (els.autoScan) els.autoScan.onchange = ()=>{ if (els.autoScan.checked) startAutoScan(); else stopAutoScan(); };
 if (els.video) els.video.addEventListener('loadedmetadata', updateROIOverlay);
 window.addEventListener('resize', updateROIOverlay);
+if (els.btnSaveOCR) els.btnSaveOCR.onclick = () => { flashButton(els.btnSaveOCR); saveOCRUrl(); };
+loadOCRUrl();
 if (els.btnUpdate) els.btnUpdate.onclick = async () => {
   flashButton(els.btnUpdate);
   try {
