@@ -224,6 +224,7 @@
     if(!state.items[code]) state.items[code]=0;
     state.items[code] += inc;
     state.lastEntry = { code: code, amount: inc };
+    if(multiplierEl) multiplierEl.value = '1';
     save(); render();
   }
 
