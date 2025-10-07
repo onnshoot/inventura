@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Inventūra</title>
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -47,6 +47,26 @@
     textarea{width:100%;min-height:120px;background:#0c0e13;color:var(--text);border:1px solid #2a3140;border-radius:10px;padding:10px}
 
     @media (hover:none){ button:active{transform:scale(0.98)} }
+
+    html,body{overscroll-behavior:contain; touch-action:manipulation;}
+    @media (max-width: 480px){
+      .wrap{padding:12px}
+      header{margin-bottom:10px}
+      input[type="text"]{min-width:0; flex:1}
+      .row{gap:8px}
+      button{padding:12px 14px}
+      table{font-size:14px}
+      thead th, tbody td{padding:8px}
+    }
+    /* Fullscreen overlay for in-app table view */
+    #tableOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:none;z-index:9999}
+    #tableCard{position:absolute;inset:10px;background:#0c0e13;border:1px solid #2a3140;border-radius:14px;display:flex;flex-direction:column}
+    #tableHead{padding:12px 14px;border-bottom:1px solid #2a3140;display:flex;gap:8px;align-items:center;justify-content:space-between}
+    #tableBody{padding:10px;overflow:auto}
+    #tableBody table{width:100%;border-collapse:collapse}
+    #tableBody th,#tableBody td{border:1px solid #202634;padding:8px}
+    #tableFoot{padding:10px;border-top:1px solid #2a3140;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .btn-link{background:transparent;border:1px solid #2a3140}
   </style>
 </head>
 <body>
@@ -57,23 +77,41 @@
     </header>
 
     <section class="card">
-      <div class="row">
+      <form id="addForm" class="row" novalidate>
         <label for="code" class="muted">8‑ciparu kods</label>
         <input id="code" type="text" inputmode="numeric" pattern="\\d{8}" placeholder="00000000" autocomplete="one-time-code" aria-label="8 ciparu kods" />
-        <button id="addBtn" class="btn-accent">Pievienot / +1 (Enter)</button>
-        <button id="minusBtn">-1</button>
-      </div>
+        <button id="addBtn" class="btn-accent" type="submit">Pievienot / +1</button>
+        <button id="minusBtn" type="button">-1</button>
+      </form>
       <div class="toolbar">
         <button id="clearBtn" class="btn-danger">Notīrīt visu</button>
         <button id="exportCsvBtn">Eksportēt CSV</button>
         <button id="exportJsonBtn">Eksportēt JSON</button>
         <button id="copyCsvBtn">Kopēt CSV starpliktuvē</button>
+        <button id="openTableBtn">Atvērt tabulu (kopēšanai)</button>
+        <button id="shareCsvBtn">Kopīgot CSV (tālrunī)</button>
         <span class="muted">Dati tiek glabāti šajā pārlūkā (localStorage).</span>
       </div>
 
       <div id="fallbackBox" class="card">
         <div class="muted" style="margin-bottom:6px">iOS Safari lejupielāde var nedarboties. Nokopē datus no laukā zemāk:</div>
         <textarea id="fallbackText" readonly></textarea>
+      </div>
+
+      <div id="tableOverlay" role="dialog" aria-modal="true" aria-labelledby="tableTitle">
+        <div id="tableCard">
+          <div id="tableHead">
+            <strong id="tableTitle">Inventāra tabula</strong>
+            <div style="display:flex;gap:8px">
+              <button id="closeTableBtn" class="btn-link" type="button">Aizvērt</button>
+            </div>
+          </div>
+          <div id="tableBody"></div>
+          <div id="tableFoot">
+            <button id="copyTableCsvBtn" type="button">Kopēt CSV</button>
+            <button id="shareTableCsvBtn" type="button" class="btn-accent">Kopīgot CSV</button>
+          </div>
+        </div>
       </div>
 
       <table id="tbl">
@@ -109,9 +147,17 @@
   var exportCsvBtn = document.getElementById('exportCsvBtn');
   var exportJsonBtn = document.getElementById('exportJsonBtn');
   var copyCsvBtn = document.getElementById('copyCsvBtn');
+  var openTableBtn = document.getElementById('openTableBtn');
+  var shareCsvBtn = document.getElementById('shareCsvBtn');
   var clearBtn = document.getElementById('clearBtn');
   var fallbackBox = document.getElementById('fallbackBox');
   var fallbackText = document.getElementById('fallbackText');
+  var addForm = document.getElementById('addForm');
+  var tableOverlay = document.getElementById('tableOverlay');
+  var tableBody = document.getElementById('tableBody');
+  var closeTableBtn = document.getElementById('closeTableBtn');
+  var copyTableCsvBtn = document.getElementById('copyTableCsvBtn');
+  var shareTableCsvBtn = document.getElementById('shareTableCsvBtn');
 
   // Helpers
   function pad(n){ return (''+n).padStart(8,'0'); }
@@ -217,12 +263,12 @@
       if(isIOS()){
         // try open
         var opened = window.open('data:' + mime + ';charset=utf-8,' + encodeURIComponent(text), '_blank');
-        if(!opened){ fallbackBox.style.display='block'; fallbackText.value=text; }
+        if(!opened){ fallbackBox.style.display='block'; fallbackText.value=text; fallbackBox.scrollIntoView({behavior:'smooth'}); }
       } else {
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
       }
       setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
-    }catch(e){ console.error(e); fallbackBox.style.display='block'; fallbackText.value=text; }
+    }catch(e){ console.error(e); fallbackBox.style.display='block'; fallbackText.value=text; fallbackBox.scrollIntoView({behavior:'smooth'}); }
   }
 
   function copyToClipboard(text){
@@ -235,7 +281,35 @@
     }
   }
 
+  async function shareCsv(){
+    var csv = asCsv();
+    try{
+      var blob = new Blob([csv], {type:'text/csv'});
+      var file = new File([blob], 'inventory.csv', {type:'text/csv'});
+      if(navigator.canShare && navigator.canShare({ files:[file] }) && navigator.share){
+        await navigator.share({ files:[file], title:'Inventārs', text:'Inventāra CSV fails' });
+        statusEl.textContent='Nosūtīts';
+        setTimeout(function(){ statusEl.textContent='Saglabā lokāli'; }, 1200);
+        return;
+      }
+      // Fallback: open in new tab as data URL so user can use Share
+      var url = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+      var w = window.open(url, '_blank');
+      if(!w){ fallbackBox.style.display='block'; fallbackText.value=csv; fallbackBox.scrollIntoView({behavior:'smooth'}); }
+    }catch(e){
+      console.error(e);
+      fallbackBox.style.display='block'; fallbackText.value=csv; fallbackBox.scrollIntoView({behavior:'smooth'});
+    }
+  }
+
   // Events
+  addForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    var code = normalizeCode(codeEl.value);
+    if(!code){ codeEl.focus(); codeEl.select(); return; }
+    add(code); codeEl.value=''; codeEl.focus();
+  });
+
   addBtn.addEventListener('click', function(){
     var code = normalizeCode(codeEl.value);
     if(!code){ codeEl.focus(); codeEl.select(); return; }
@@ -262,6 +336,25 @@
   });
   copyCsvBtn.addEventListener('click', function(){ copyToClipboard(asCsv()); });
 
+  openTableBtn.addEventListener('click', function(){
+    // Build table HTML inside the overlay (no window.open in PWA)
+    var rows = Object.keys(state.items).sort().map(function(c){
+      return '<tr><td class="code">'+c+'</td><td style="text-align:right">'+state.items[c]+'</td></tr>';
+    }).join('');
+    var total = Object.values(state.items).reduce(function(a,b){return a+b;},0);
+    tableBody.innerHTML = '<table><thead><tr><th>Kods</th><th>Skaits</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+                          '<p style="margin-top:8px"><b>Kopā vienību:</b> '+total+'</p>';
+    tableOverlay.style.display = 'block';
+  });
+
+  closeTableBtn.addEventListener('click', function(){ tableOverlay.style.display='none'; });
+  copyTableCsvBtn.addEventListener('click', function(){ copyToClipboard(asCsv()); });
+  shareTableCsvBtn.addEventListener('click', function(){ shareCsv(); });
+
+  shareCsvBtn.addEventListener('click', function(){
+    shareCsv();
+  });
+
   clearBtn.addEventListener('click', function(){
     if(confirm('Vai tiešām dzēst visu?')){ state.items = {}; save(); render(); }
   });
@@ -269,6 +362,9 @@
   // Init
   render();
   codeEl.focus();
+
+  // Best-effort: block iOS pinch-zoom in standalone
+  document.addEventListener('gesturestart', function(e){ e.preventDefault(); }, {passive:false});
 })();
 </script>
 </body>
