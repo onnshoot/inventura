@@ -108,6 +108,7 @@
     </section>
   </div>
 
+<script src="sources/products.js"></script>
 <script>
 (function(){
   'use strict';
@@ -129,6 +130,7 @@
   var fallbackFilename = document.getElementById('fallbackFilename');
   var fallbackText = document.getElementById('fallbackText');
   var addForm = document.getElementById('addForm');
+  var productMap = (typeof window !== 'undefined' && window.EZU_PRODUCTS) ? window.EZU_PRODUCTS : {};
 
   // Helpers
   function nowStr(){ var d=new Date(); return d.toLocaleString(); }
@@ -210,7 +212,11 @@
   function updateLastCodeDisplay(){
     if(!lastCodeEl) return;
     if(state.lastEntry && state.lastEntry.code){
-      var text = state.lastEntry.code;
+      var code = state.lastEntry.code;
+      var text = code;
+      if(productMap && productMap[code]){
+        text += ' — ' + productMap[code];
+      }
       var amount = state.lastEntry.amount || 0;
       if(amount > 1){ text += ' ×' + amount; }
       lastCodeEl.textContent = 'Pēdējais ievadītais kods: ' + text;
